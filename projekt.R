@@ -51,4 +51,4 @@ yearly_country_df <- data.frame(year = as.numeric(names(yearly_country_counts)),
 
 # Wyświetlamy wynik
 print(yearly_country_df)
-#wnioski:
+#wnioski: 
