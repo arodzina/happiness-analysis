@@ -52,7 +52,7 @@ hist(dane$Positive.affect)
 
 
 # Definiujemy interesujący nas zakres lat
-lata_docelowe <- 2013:2023
+lata_docelowe <- 2017:2023
 
 # Filtrowanie danych tylko dla lat 2013–2023
 dane_filtered <- dane %>%
@@ -68,16 +68,27 @@ kraj_lata <- dane_filtered %>%
 liczba_krajow_bez_przerwy <- nrow(kraj_lata)
 print(liczba_krajow_bez_przerwy)
 
+
 # Tworzenie nowej tabeli tylko z danymi z 2023 roku
 dane_2023 <- dane %>%
   filter(year == 2023)
+dane_2023 <- dane_2023 %>% select(-year)
+#korelacje 
+library(corrplot)
 
-# Podgląd danych
-head(dane_2023)
+num_data <- dane_2023 %>%
+  select(where(is.numeric))  # tylko kolumny liczbowe
+cor_matrix <- cor(num_data, use = "complete.obs")  # ignoruje NA
+corrplot(cor_matrix, method = "color", 
+         tl.col = "black", tl.cex = 0.8, number.cex = 0.7,
+         addCoef.col = "black", order = "hclust")
+#z macierzy korelacji wynika, że Generosity nie wpływa na nic. PKB, długośc życia, drabina życiowa i social support są silnie zależne od siebie. Nevative effect ma mocniejsze korelacje z pozostałymi zmiennymi niż positive effect. Positive effect ma prawie wszystkie dodatnie korelacje a negative ujemne
+
+#modele dla 2023
 #pozytywny efekt
 model<-lm(Positive.affect~.-Country.name-year-Negative.affect,dane_2023)
 summary(model)
-model<-lm(Positive.affect~.-Country.name-year-Negative.affect-Perceptions.of.corruption-Social.support-Log.GDP.per.capita-Generosity,dane_2023)
+model<-lm(Positive.affect~.-Country.name-Negative.affect-Perceptions.of.corruption-Social.support-Log.GDP.per.capita-Generosity,dane_2023)
 summary(model)
 
 #negatywny efekt
@@ -87,3 +98,47 @@ summary(model)
 model<-lm(Negative.affect~.-Country.name-year-Positive.affect-Life.Ladder-Generosity-Perceptions.of.corruption,dane_2023)
 summary(model)
 
+#rok 2013
+dane_2013 <- dane_2013 %>% select(-year)
+#korelacje 
+
+dane_2013 <- dane %>%
+  filter(year == 2013)
+dane_2013 <- dane_2013 %>% select(-year)
+num_data <- dane_2013 %>%
+  select(where(is.numeric))  # tylko kolumny liczbowe
+
+cor_matrix <- cor(num_data, use = "complete.obs")  # ignoruje NA
+corrplot(cor_matrix, method = "color", 
+         tl.col = "black", tl.cex = 0.8, number.cex = 0.7,
+         addCoef.col = "black", order = "hclust")
+
+model<-lm(Positive.affect~.-Country.name-Negative.affect,dane_2013)
+summary(model)
+
+model<-lm(Positive.affect~.-Country.name-Negative.affect-Perceptions.of.corruption -Generosity -Healthy.life.expectancy.at.birth,dane_2013)
+summary(model)
+#negatywny efekt
+model<-lm(Negative.affect~.-Country.name-year-Positive.affect,dane_2023)
+summary(model)
+
+model<-lm(Freedom.to.make.life.choices~.-Country.name-Life.Ladder-Negative.affect-Log.GDP.per.capita-Healthy.life.expectancy.at.birth,dane_2013)
+summary(model)
+
+
+
+
+#scatter plot 
+# Załaduj bibliotekę ggplot2
+library(ggplot2)
+
+# Wykres
+ggplot(dane, aes(x = `Log GDP per capita`, y = `Life Ladder`, color = factor(year))) +
+  geom_point(alpha = 0.7) +
+  scale_color_viridis_d() + # Używa palety 'viridis' dla kolorów
+  labs(title = 'Log GDP per Capita vs. Life Ladder', 
+       x = 'Log GDP per Capita', 
+       y = 'Life Ladder') +
+  theme_minimal() +
+  theme(panel.grid.major = element_line(linetype = "dashed", color = "grey")) +
+  theme(legend.title = element_blank()) # Opcjonalnie, usuwa tytuł legendy
