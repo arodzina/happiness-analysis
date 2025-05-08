@@ -133,7 +133,7 @@ summary(model)
 library(ggplot2)
 
 # Wykres
-ggplot(dane, aes(x = `Log GDP per capita`, y = `Life Ladder`, color = factor(year))) +
+ggplot(dane, aes(x = `Log.GDP.per.capita`, y = `Life.Ladder`, color = factor(year))) +
   geom_point(alpha = 0.7) +
   scale_color_viridis_d() + # Używa palety 'viridis' dla kolorów
   labs(title = 'Log GDP per Capita vs. Life Ladder', 

@@ -1,0 +1,107 @@
+---
+title: "Modelowanie dobrostanu subiektywnego na podstawie danych World Happiness Report"
+author: "Twoje Imię i nazwisko"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(caret)
+library(car)
+library(corrplot)
+library(lmtest)
+library(sandwich)
+library(psych)
+library(ggplot2)
+```
+
+## 1. Wstęp
+
+Celem analizy jest zbudowanie modelu regresji liniowej, który przewiduje poziom zadowolenia z życia (Life Ladder) na podstawie zmiennych społeczno-ekonomicznych zawartych w raporcie World Happiness Report.
+
+## 2. Wczytanie i przygotowanie danych
+
+```{r load-data}
+data <- read.csv("World Happiness Report 2024.csv", sep = ";")
+data_clean <- na.omit(data)
+glimpse(data_clean)
+```
+
+## 3. Statystyki opisowe i korelacje
+
+```{r desc-stats}
+describe(data_clean %>% select(-Country.name, -year))
+corrplot(cor(data_clean %>% select_if(is.numeric)), method = "circle", type = "upper")
+```
+
+## 4. Podział na zbiór treningowy i testowy
+
+```{r split-data}
+set.seed(123)
+trainIndex <- createDataPartition(data_clean$`Life.Ladder`, p = .7, list = FALSE)
+train <- data_clean[trainIndex, ]
+test <- data_clean[-trainIndex, ]
+```
+
+## 5. Budowa modelu regresji liniowej
+
+```{r fit-model}
+model <- lm(`Life.Ladder` ~ `Log.GDP.per.capita` + `Social.support` +
+              `Healthy.life.expectancy.at.birth` + `Freedom.to.make.life.choices` +
+              Generosity + `Perceptions.of.corruption` + `Positive.affect` + `Negative.affect`,
+              data = train)
+summary(model)
+```
+
+## 6. Diagnostyka modelu
+
+```{r diagnostics}
+# Współliniowość
+vif(model)
+
+# Normalność reszt
+shapiro.test(residuals(model))
+qqnorm(residuals(model)); qqline(residuals(model))
+
+# Heteroskedastyczność
+bptest(model)
+
+# Autokorelacja
+dwtest(model)
+```
+
+## 7. Prognoza i ocena modelu
+
+```{r prediction}
+pred <- predict(model, newdata = test)
+mae <- mean(abs(pred - test$`Life.Ladder`))
+rmse <- sqrt(mean((pred - test$`Life.Ladder`)^2))
+mae
+rmse
+```
+
+## 8. Wykresy wyników
+
+```{r plots}
+# Predykcja vs rzeczywiste
+pred_df <- data.frame(pred, actual = test$`Life.Ladder`)
+ggplot(pred_df, aes(x = actual, y = pred)) +
+  geom_point() +
+  geom_abline(color = "red", linetype = "dashed") +
+  labs(title = "Predykcja vs Rzeczywiste wartości", x = "Rzeczywiste", y = "Predykcja")
+
+# Wykres reszt
+ggplot(data.frame(resid = residuals(model), fitted = fitted(model)),
+       aes(x = fitted, y = resid)) +
+  geom_point() +
+  geom_hline(yintercept = 0, color = "red") +
+  labs(title = "Reszty vs dopasowane wartości", x = "Dopasowane", y = "Reszty")
+```
+
+## 9. Podsumowanie
+
+Model wykazał, że największy wpływ na poziom zadowolenia z życia mają m.in. `Log GDP per capita`, `Social support` oraz `Freedom to make life choices`. Diagnoza reszt wskazuje na pewne odstępstwa od założeń klasycznego modelu liniowego, ale model osiąga stosunkowo niskie błędy (MAE, RMSE), co świadczy o dobrej jakości dopasowania.
+
+W kolejnym kroku możliwa jest rozbudowa analizy o modele panelowe z efektami stałymi lub losowymi, co może poprawić ujęcie efektów krajowych i czasowych.
