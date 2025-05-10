@@ -36,14 +36,71 @@ describe(data_clean %>% select(-Country.name, -year))
 corrplot(cor(data_clean %>% select_if(is.numeric)), method = "circle", type = "upper")
 ```
 
+## 3a. Opis zmiennych 
+
+Country name: The country for which the data is reported.
+Year: The year in which the data was collected.
+Life Ladder: A measure of subjective well-being or life satisfaction on a scale where higher values generally indicate greater happiness.
+Log GDP per capita: The logarithm of GDP per capita, reflecting economic prosperity and its impact on happiness.
+Social support: A metric indicating the level of perceived social support or network available to individuals.
+Healthy life expectancy at birth: The number of years a person is expected to live in good health from birth.
+Freedom to make life choices: A measure of how free individuals feel in making life decisions.
+Generosity: A metric reflecting the level of generosity or charitable giving in a country.
+Perceptions of corruption: A measure of how corrupt the government is perceived to be, influencing trust and satisfaction.
+Positive affect: The level of positive emotions such as joy and contentment experienced by individuals.
+Negative affect: The level of negative emotions such as sadness and anxiety experienced by individuals.
+
 ## 4. Podział na zbiór treningowy i testowy
 
 ```{r split-data}
 set.seed(123)
-trainIndex <- createDataPartition(data_clean$`Life.Ladder`, p = .7, list = FALSE)
-train <- data_clean[trainIndex, ]
-test <- data_clean[-trainIndex, ]
+
+train <- data_clean %>% slice_sample(prop = 0.9) 
+test <- anti_join(data_clean, train)
 ```
+
+```{r}
+data_cleaned = data_clean %>% select(-Country.name, -year) 
+# metoda Hellwiga
+
+hellwig<-function(data) { #zał. y jest w pierwszej kolumnie
+cor_matrix <- cor(data)
+R0 <- cor_matrix[1, -1] #korelacja y z wszystkimi zmiennymi objaśniającymi
+R <- cor_matrix[-1,-1] #korelacjazmiennych objaśniających między sobą
+
+
+L <- 2^8-1
+
+comb <- expand.grid(rep(list(c(T, F)), 8))
+
+# pętla od 1 do L
+#szukamy kombinacji która ma największa H
+
+best_H <- 0 #najlepszy współczynnik H
+best_k <- NULL #najlepszy zestaw zmiennych
+
+R <- abs(R)
+
+for (i in 1:L) {
+  k <- c(1:8)[unlist(comb[i,])] #wiesz TRUE FALSE z naszego comb (które zmienne w tym wypadku bierzemy a które nie)
+  H <- 0 #wyżej = z wektora logicznego wybierz tylko te wartości, które są TRUE
+  
+  for (j in k) {
+    H = H + R0[j]^2/sum(R[j,k])
+  }
+  
+  if (H > best_H) {
+    best_H <- H
+    best_k <- k
+  }
+}
+
+best_H
+best_k
+return(colnames(data)[best_k + 1])}
+hellwig(data=data_cleaned)
+```
+Metoda Hellwiga pokazała, że Life Ladder w największym stopniu zależy od PKB na osobę, wsparcia społecznego, przewidywanej długości życia, poziomu korupcji w kraju oraz pozytywnych emocji.
 
 ## 5. Budowa modelu regresji liniowej
 
@@ -53,34 +110,62 @@ model <- lm(`Life.Ladder` ~ `Log.GDP.per.capita` + `Social.support` +
               Generosity + `Perceptions.of.corruption` + `Positive.affect` + `Negative.affect`,
               data = train)
 summary(model)
+
+model2 <- lm(`Life.Ladder` ~ `Log.GDP.per.capita` + `Social.support` +
+              `Healthy.life.expectancy.at.birth` +
+               `Perceptions.of.corruption` + `Positive.affect`,
+              data = train)
+summary(model2)
+plot(model2)
 ```
+Pierwszy model sprawdza istatność statystyczną wszystkich zmiennych i ich wpływ na Life Ladder. Okazuje się, że głównie Negative affect słabo objaśnia poziom satysfakcji życiowej. Z tego względu zrezygnujemy z tej zmiennej w drugim modelu. Dodatkowo nie użyjemy również Generosity i Freedom to make life choices, ponieważ nie zostały one wybrane metodą Hellwiga.
 
 ## 6. Diagnostyka modelu
 
 ```{r diagnostics}
 # Współliniowość
-vif(model)
-
-# Normalność reszt
-shapiro.test(residuals(model))
-qqnorm(residuals(model)); qqline(residuals(model))
-
-# Heteroskedastyczność
-bptest(model)
-
-# Autokorelacja
-dwtest(model)
+vif(model2)
 ```
+Badamy tutaj, czy zmienne objaśniające są ze sobą silnie skorelowane. Wspólniniowość występuje raczej niska lub umiarkowana. Dla poziomu PKB jest lekko wyższa, ale nie przekracza wartości 5, która stanowiłaby juz problem. Z tego względu nie trzeba korygować postaci modelu.
+
+```{r diagnostics}
+res <- model2$residuals
+hist(res)
+# Normalność reszt
+shapiro.test(res)
+qqnorm(res); qqline(res)
+```
+Sprawdzamy reszty modelu. Histogram pokazuje, że ich rozkład przypomina normalny, jest symetryczny względem zera i nie wykazuje wartości odstających, co dobrze świadczy. Test normalności Shapiro-Wilka wskazuje jednak, że powinniśmy odrzucić hipotezę zerową o normalności rozkładu. Z drugiej strony wykres kwantyl-kwantyl wygląda całkiem przyzwoicie. Większość punktów leży blisko linii prostej - oznacza to, że reszty są w przybliżeniu normalne w środku rozkładu.Odchylenia na końcach (lewa i prawa strona) — wskazują na lekkie odstępstwa w ogonach. Nie ma dramatycznych odchyleń, żadnych ekstremalnych punktów bardzo daleko od linii. Nawet gdy reszty nie mają rozkładu idealnie normalnego, to nie jest to problem, jeśli mamy dużą próbę i wykresy pozwalają na stwierdzenie podobieństwa do rozkładu normalnego. Dodatkowo naszym celem jest przecież prognoza, więc taki rozkład reszt modelu jest w porządku.
+
+```{r diagnostics}
+# Heteroskedastyczność
+bptest(model2)
+```
+Wynik testu Breuscha-Pagana informuje o tym, czy w modelu występuje heteroskedastyczność, czyli zmienność wariancji reszt w zależności od wartości zmiennych objaśniających — co łamie jedno z podstawowych założeń regresji liniowej. Test ten pokazał, że w naszym modelu występuje heteroskedastyczność. Przy prognozowaniu nie jest to bardzo istotnym problemem.
+
+```{r diagnostics}
+# Autokorelacja
+dwtest(model2)
+```
+Wynik testu Durbin-Watsona ocenia, czy w resztach modelu występuje autokorelacja — czyli zależność reszt między sobą. DW = 1,89 oznacza istotną statystycznie autokorelację reszt. 
 
 ## 7. Prognoza i ocena modelu
 
 ```{r prediction}
-pred <- predict(model, newdata = test)
+pred <- predict(model2, newdata = test)
 mae <- mean(abs(pred - test$`Life.Ladder`))
 rmse <- sqrt(mean((pred - test$`Life.Ladder`)^2))
 mae
 rmse
 ```
+MAE (Mean Absolute Error) = 0.4267
+→ Średni błąd bezwzględny prognozy: model myli się średnio o 0.43 jednostki w przewidywaniu poziomu szczęścia (Life.Ladder).
+
+RMSE (Root Mean Square Error) = 0.5551
+→ Błąd średniokwadratowy: uwzględnia większe kary dla dużych błędów.
+Zarówno MAE < 0.5, jak i RMSE < 0.6, co przy skali Life.Ladder (zwykle 0–10) oznacza, że model radzi sobie dobrze z predykcją.
+
+Różnica między RMSE a MAE jest umiarkowana, co oznacza, że nie ma dużych ekstremalnych błędów.
 
 ## 8. Wykresy wyników
 
