@@ -14,7 +14,10 @@ library(corrplot)
 library(lmtest)
 library(sandwich)
 library(psych)
+library(moments)
 library(ggplot2)
+library(strucchange)
+library(lmtest)
 ```
 
 ## 1. Wstęp
@@ -102,7 +105,7 @@ hellwig(data=data_cleaned)
 ```
 Metoda Hellwiga pokazała, że Life Ladder w największym stopniu zależy od PKB na osobę, wsparcia społecznego, przewidywanej długości życia, poziomu korupcji w kraju oraz pozytywnych emocji.
 
-## 5. Budowa modelu regresji liniowej
+## 5. Budowa modeli regresji liniowej
 
 ```{r fit-model}
 model <- lm(`Life.Ladder` ~ `Log.GDP.per.capita` + `Social.support` +
@@ -110,6 +113,7 @@ model <- lm(`Life.Ladder` ~ `Log.GDP.per.capita` + `Social.support` +
               Generosity + `Perceptions.of.corruption` + `Positive.affect` + `Negative.affect`,
               data = train)
 summary(model)
+resettest(model)
 
 model2 <- lm(`Life.Ladder` ~ `Log.GDP.per.capita` + `Social.support` +
               `Healthy.life.expectancy.at.birth` +
@@ -131,32 +135,73 @@ Badamy tutaj, czy zmienne objaśniające są ze sobą silnie skorelowane. Wspól
 ```{r diagnostics}
 res <- model2$residuals
 hist(res)
+skewness(res)
+kurtosis(res)
 # Normalność reszt
 shapiro.test(res)
 qqnorm(res); qqline(res)
 ```
 Sprawdzamy reszty modelu. Histogram pokazuje, że ich rozkład przypomina normalny, jest symetryczny względem zera i nie wykazuje wartości odstających, co dobrze świadczy. Test normalności Shapiro-Wilka wskazuje jednak, że powinniśmy odrzucić hipotezę zerową o normalności rozkładu. Z drugiej strony wykres kwantyl-kwantyl wygląda całkiem przyzwoicie. Większość punktów leży blisko linii prostej - oznacza to, że reszty są w przybliżeniu normalne w środku rozkładu.Odchylenia na końcach (lewa i prawa strona) — wskazują na lekkie odstępstwa w ogonach. Nie ma dramatycznych odchyleń, żadnych ekstremalnych punktów bardzo daleko od linii. Nawet gdy reszty nie mają rozkładu idealnie normalnego, to nie jest to problem, jeśli mamy dużą próbę i wykresy pozwalają na stwierdzenie podobieństwa do rozkładu normalnego. Dodatkowo naszym celem jest przecież prognoza, więc taki rozkład reszt modelu jest w porządku.
+Skośność bliska zeru. Tylko lekko dłuższy ogon po lewej stronie. Kurtoza niewiele ponad trzy oznacza wyszczuplony, wysoki rozkład - dużo wartości bliskich średniej, nieco cięższe ogony niż w rozkładzie normalnym.
 
 ```{r diagnostics}
 # Heteroskedastyczność
 bptest(model2)
+
+#tu chyba badamy heteroskedastyczność jeśli chodzi o  PKB ale nie wiem jakie wnioski napisać
+
+gqtest(model2, point = 0.5, order.by = ~Log.GDP.per.capita, data = train)
+
+plot(train$Log.GDP.per.capita, train$Life.Ladder,
+     xlab = "Log GDP per Capita", ylab = "Life Ladder",
+     main = "Zależność: PKB a Szczęście", col = "steelblue", pch = 16)
+abline(lm(Life.Ladder ~ Log.GDP.per.capita, data = train), col = "red", lwd = 2)
+
+res <- residuals(lm(Life.Ladder ~ Log.GDP.per.capita, data = train))
+plot(train$Log.GDP.per.capita, res,
+     xlab = "Log GDP per Capita", ylab = "Reszty",
+     main = "Reszty względem Log GDP", pch = 16, col = "grey")
+abline(h = 0, col = "red")
+
+
 ```
 Wynik testu Breuscha-Pagana informuje o tym, czy w modelu występuje heteroskedastyczność, czyli zmienność wariancji reszt w zależności od wartości zmiennych objaśniających — co łamie jedno z podstawowych założeń regresji liniowej. Test ten pokazał, że w naszym modelu występuje heteroskedastyczność. Przy prognozowaniu nie jest to bardzo istotnym problemem.
 
 ```{r diagnostics}
 # Autokorelacja
 dwtest(model2)
+
+#stabilność modelu
+#Test Ramseya
+resettest(model2)
+sctest(model2)
 ```
-Wynik testu Durbin-Watsona ocenia, czy w resztach modelu występuje autokorelacja — czyli zależność reszt między sobą. DW = 1,89 oznacza istotną statystycznie autokorelację reszt. 
+Wynik testu Durbin-Watsona ocenia, czy w resztach modelu występuje autokorelacja — czyli zależność reszt między sobą. DW = 1,89 oznacza istotną statystycznie autokorelację reszt.
+
+Wynik drugi pochodzi z RESET testu (Ramsey Regression Equation Specification Error Test), który sprawdza, czy w modelu regresji liniowej brakuje ważnych zmiennych lub występuje nieliniowość nieujęta w modelu. Odrzucamy H0 na korzyść hipotezy alternatywna (H₁): model jest źle wyspecyfikowany — być może brakuje jakichś istotnych zmiennych, relacje między zmiennymi są nieliniowe, ale model zakłada liniowość.
+
+Wynik testu M-fluctuation dotyczy stabilności parametrów modelu regresji w czasie lub w innej kolejności danych (np. wg roku, kraju itp.). Model model2 jest parametrycznie stabilny — nie widać, by jego współczynniki zmieniały się istotnie w czasie lub między grupami danych.
+To dobry znak, szczególnie przy danych wieloletnich, bo sugeruje, że relacje między zmiennymi są trwałe i spójne.
 
 ## 7. Prognoza i ocena modelu
 
 ```{r prediction}
-pred <- predict(model2, newdata = test)
+pred <- predict(model2, newdata = test, interval="p")
 mae <- mean(abs(pred - test$`Life.Ladder`))
 rmse <- sqrt(mean((pred - test$`Life.Ladder`)^2))
 mae
 rmse
+
+df <- data.frame(
+  Actual = test$Life.Ladder,
+  Prediction = pred[, "fit"],
+  Lower = pred[, "lwr"],
+  Upper = pred[, "upr"]
+)
+
+df %>%
+  mutate(hit = if_else(Actual >= Lower & Actual <= Upper, TRUE, FALSE)) %>%
+  summarise(hitrate = mean(hit))
 ```
 MAE (Mean Absolute Error) = 0.4267
 → Średni błąd bezwzględny prognozy: model myli się średnio o 0.43 jednostki w przewidywaniu poziomu szczęścia (Life.Ladder).
@@ -167,15 +212,19 @@ Zarówno MAE < 0.5, jak i RMSE < 0.6, co przy skali Life.Ladder (zwykle 0–10) 
 
 Różnica między RMSE a MAE jest umiarkowana, co oznacza, że nie ma dużych ekstremalnych błędów.
 
+93% predykcji mieści się w przedziałach ufności. To naprawdę dobry wynik przy poziomie istotności 95%.
+
 ## 8. Wykresy wyników
 
 ```{r plots}
 # Predykcja vs rzeczywiste
-pred_df <- data.frame(pred, actual = test$`Life.Ladder`)
-ggplot(pred_df, aes(x = actual, y = pred)) +
-  geom_point() +
-  geom_abline(color = "red", linetype = "dashed") +
-  labs(title = "Predykcja vs Rzeczywiste wartości", x = "Rzeczywiste", y = "Predykcja")
+
+plot(test$Life.Ladder, pred[,"fit"], 
+     xlab = "Rzeczywiste wartości szczęścia", 
+     ylab = "Przewidywane wartości szczęścia", 
+     main = "Porównanie rzeczywistych vs przewidywanych wartości szczęścia",
+     col = "blue", pch = 16)
+abline(0, 1, col = "red", lwd = 2)
 
 # Wykres reszt
 ggplot(data.frame(resid = residuals(model2), fitted = fitted(model2)),
@@ -199,6 +248,12 @@ mae <- mean(abs(pred - test$`Life.Ladder`))
 rmse <- sqrt(mean((pred - test$`Life.Ladder`)^2))
 mae
 rmse
+error <- test$Life.Ladder - pred
+MAE <- mean(abs(error))
+MAPE <- mean(abs(error / test$Life.Ladder))*100
+RMSE <- sqrt(mean(error^2))
+cat("MAE:", MAE, "\nMAPE:", MAPE, "\nRMSE:", RMSE, "\n")
+resettest(model_year)
 ```
 Próba stworzenia modelu uwzględniającego czas. Żaden rok nie jest istotny statystycznie — wszystkie mają p-value znacznie powyżej 0.05. To oznacza, że po uwzględnieniu innych zmiennych (gospodarka, zdrowie itd.), sam rok nie wnosi istotnej zmiany w poziomie szczęścia. Możliwe, że trendy czasowe są już "wychwycone" przez inne zmienne. Anova daje nam jednak informację, że RSS (Residual Sum of Squares) spadło z 545.49 do 532.57, co oznacza, że model 2 lepiej dopasowuje się do danych. Test F sprawdza, czy ta poprawa jest istotna statystycznie. p-value = 0.0004378 → oznacza, że poprawa dopasowania jest istotna na poziomie istotności 0.001. Choć żaden pojedynczy rok w modelu nie był istotny, to rok jako grupa zmiennych kategorycznych wnosi statystycznie istotną informację. Dodanie factor(year) poprawia dopasowanie modelu. Rok wnosi coś istotnego statystycznie, bo nawet niewielka poprawa dopasowania (spadek RSS) przy tak dużej liczbie danych oznacza, że efekt roku jest realny, a nie losowy.
 
