@@ -272,7 +272,48 @@ data_2<-data_clean
 data_2$Region <- countrycode(sourcevar = data_clean$Country.name,
                            origin = "country.name",
                            destination = "region")
+data_2$RegionCode <- as.numeric(factor(data_2$Region))
+levels(factor(data_2$Region))
+
+
+ggplot(data_2, aes(x = factor(Region), y = Life.Ladder)) +
+  geom_boxplot(fill = "skyblue", alpha = 0.7, outlier.color = "red") +
+  stat_summary(fun = mean, geom = "point", shape = 20, size = 3, color = "darkblue", 
+               position = position_dodge(width = 0.75)) +
+  labs(
+    title = "Rozkład szczęścia (Life Ladder) w regionach",
+    x = "Region",
+    y = "Life Ladder"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+data_2 %>%
+  group_by(year, Region) %>%
+  summarise(mean_life = mean(Life.Ladder, na.rm = TRUE)) %>%
+  ggplot(aes(x = year, y = mean_life, color = factor(Region))) +
+  geom_line(size = 1.2) +
+  geom_point(size = 2) +
+  labs(
+    title = "Średni poziom szczęścia w regionach na przestrzeni lat",
+    x = "Rok",
+    y = "Średni Life Ladder",
+    color = "Region"
+  ) +
+  theme_minimal(base_size = 14)
+
+anova_region <- aov(Life.Ladder ~ factor(Region), data = data_2)
+summary(anova_region)
+
+
+
 ```
+ANOVA: p-value < 2e-16 → bardzo silne podstawy do odrzucenia H₀.
+
+To oznacza, że region ma istotny wpływ na poziom szczęścia — przynależność regionalna wyjaśnia dużą część zmienności. Suma kwadratów dla regionu (1205) jest znacznie większa niż dla reszt (1505), co znaczy, że duża część wariancji Life Ladder jest związana z regionem. Regiony bardzo istotnie różnią się między sobą pod względem poziomu szczęścia.
+To idealne uzasadnienie, żeby uwzględniać region w modelach predykcyjnych lub interpretacyjnych.
+
 ## 9. Podsumowanie (do zmiany)
 
 Model wykazał, że największy wpływ na poziom zadowolenia z życia mają m.in. `Log GDP per capita`, `Social support` oraz `Freedom to make life choices`. Diagnoza reszt wskazuje na pewne odstępstwa od założeń klasycznego modelu liniowego, ale model osiąga stosunkowo niskie błędy (MAE, RMSE), co świadczy o dobrej jakości dopasowania.
