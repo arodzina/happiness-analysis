@@ -178,12 +178,21 @@ ggplot(pred_df, aes(x = actual, y = pred)) +
   labs(title = "Predykcja vs Rzeczywiste wartości", x = "Rzeczywiste", y = "Predykcja")
 
 # Wykres reszt
-ggplot(data.frame(resid = residuals(model), fitted = fitted(model)),
+ggplot(data.frame(resid = residuals(model2), fitted = fitted(model2)),
        aes(x = fitted, y = resid)) +
   geom_point() +
   geom_hline(yintercept = 0, color = "red") +
   labs(title = "Reszty vs dopasowane wartości", x = "Dopasowane", y = "Reszty")
 ```
+```{r}
+model_year <- lm(Life.Ladder ~ Log.GDP.per.capita + Social.support +
+                   Healthy.life.expectancy.at.birth + Perceptions.of.corruption +
+                   Positive.affect + factor(year), data = train)
+summary(model_year)
+
+
+```
+Próba stworzenia modelu uwzględniającego czas. Żaden rok nie jest istotny statystycznie — wszystkie mają p-value znacznie powyżej 0.05. To oznacza, że po uwzględnieniu innych zmiennych (gospodarka, zdrowie itd.), sam rok nie wnosi istotnej zmiany w poziomie szczęścia. Możliwe, że trendy czasowe są już "wychwycone" przez inne zmienne.
 
 ## 9. Podsumowanie
 
