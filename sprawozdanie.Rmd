@@ -189,12 +189,29 @@ model_year <- lm(Life.Ladder ~ Log.GDP.per.capita + Social.support +
                    Healthy.life.expectancy.at.birth + Perceptions.of.corruption +
                    Positive.affect + factor(year), data = train)
 summary(model_year)
+anova(model2, model_year)
+AIC(model2, model_year)
+vif(model_year)
 
 
+pred <- predict(model_year, newdata = test)
+mae <- mean(abs(pred - test$`Life.Ladder`))
+rmse <- sqrt(mean((pred - test$`Life.Ladder`)^2))
+mae
+rmse
 ```
-Próba stworzenia modelu uwzględniającego czas. Żaden rok nie jest istotny statystycznie — wszystkie mają p-value znacznie powyżej 0.05. To oznacza, że po uwzględnieniu innych zmiennych (gospodarka, zdrowie itd.), sam rok nie wnosi istotnej zmiany w poziomie szczęścia. Możliwe, że trendy czasowe są już "wychwycone" przez inne zmienne.
+Próba stworzenia modelu uwzględniającego czas. Żaden rok nie jest istotny statystycznie — wszystkie mają p-value znacznie powyżej 0.05. To oznacza, że po uwzględnieniu innych zmiennych (gospodarka, zdrowie itd.), sam rok nie wnosi istotnej zmiany w poziomie szczęścia. Możliwe, że trendy czasowe są już "wychwycone" przez inne zmienne. Anova daje nam jednak informację, że RSS (Residual Sum of Squares) spadło z 545.49 do 532.57, co oznacza, że model 2 lepiej dopasowuje się do danych. Test F sprawdza, czy ta poprawa jest istotna statystycznie. p-value = 0.0004378 → oznacza, że poprawa dopasowania jest istotna na poziomie istotności 0.001. Choć żaden pojedynczy rok w modelu nie był istotny, to rok jako grupa zmiennych kategorycznych wnosi statystycznie istotną informację. Dodanie factor(year) poprawia dopasowanie modelu. Rok wnosi coś istotnego statystycznie, bo nawet niewielka poprawa dopasowania (spadek RSS) przy tak dużej liczbie danych oznacza, że efekt roku jest realny, a nie losowy.
 
-## 9. Podsumowanie
+AIC (Akaike Information Criterion) jest również niższy dla model_year. Mimo że model_year ma więcej parametrów (25 vs 7), to i tak wyraźnie lepiej dopasowuje się do danych po uwzględnieniu złożoności.
+To kolejny dowód (po ANOVA), że dodanie factor(year) ma sens i jest uzasadnione statystycznie.
+
+Mimo że model_year ma lepsze dopasowanie do danych treningowych (niższy AIC, lepszy ANOVA), jego trafność predykcji na danych testowych jest minimalnie gorsza.
+Różnice są jednak bardzo niewielkie i mogą być przypadkowe (w granicach błędu).
+Dodanie factor(year) poprawia dopasowanie i ujawnia drobny efekt lat, ale nie poprawia (ani nie pogarsza znacząco) trafności prognozy.
+
+Możemy potraktować tę część projektu jako swego rodzaju eksperyment.
+
+## 9. Podsumowanie (do zmiany)
 
 Model wykazał, że największy wpływ na poziom zadowolenia z życia mają m.in. `Log GDP per capita`, `Social support` oraz `Freedom to make life choices`. Diagnoza reszt wskazuje na pewne odstępstwa od założeń klasycznego modelu liniowego, ale model osiąga stosunkowo niskie błędy (MAE, RMSE), co świadczy o dobrej jakości dopasowania.
 
