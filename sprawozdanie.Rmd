@@ -18,6 +18,7 @@ library(moments)
 library(ggplot2)
 library(strucchange)
 library(lmtest)
+library(countrycode)
 ```
 
 ## 1. Wstęp
@@ -266,6 +267,12 @@ Dodanie factor(year) poprawia dopasowanie i ujawnia drobny efekt lat, ale nie po
 
 Możemy potraktować tę część projektu jako swego rodzaju eksperyment.
 
+```{r}
+data_2<-data_clean
+data_2$Region <- countrycode(sourcevar = data_clean$Country.name,
+                           origin = "country.name",
+                           destination = "region")
+```
 ## 9. Podsumowanie (do zmiany)
 
 Model wykazał, że największy wpływ na poziom zadowolenia z życia mają m.in. `Log GDP per capita`, `Social support` oraz `Freedom to make life choices`. Diagnoza reszt wskazuje na pewne odstępstwa od założeń klasycznego modelu liniowego, ale model osiąga stosunkowo niskie błędy (MAE, RMSE), co świadczy o dobrej jakości dopasowania.
