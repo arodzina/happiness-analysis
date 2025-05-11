@@ -11,7 +11,6 @@ library(tidyverse)
 library(caret)
 library(car)
 library(corrplot)
-library(lmtest)
 library(sandwich)
 library(psych)
 library(moments)
@@ -67,15 +66,15 @@ test <- anti_join(data_clean, train)
 data_cleaned = data_clean %>% select(-Country.name, -year) 
 # metoda Hellwiga
 
-hellwig<-function(data) { #zał. y jest w pierwszej kolumnie
+hellwig<-function(data,n) { #zał. y jest w pierwszej kolumnie
 cor_matrix <- cor(data)
 R0 <- cor_matrix[1, -1] #korelacja y z wszystkimi zmiennymi objaśniającymi
 R <- cor_matrix[-1,-1] #korelacjazmiennych objaśniających między sobą
 
 
-L <- 2^8-1
+L <- 2^n-1
 
-comb <- expand.grid(rep(list(c(T, F)), 8))
+comb <- expand.grid(rep(list(c(T, F)), n))
 
 # pętla od 1 do L
 #szukamy kombinacji która ma największa H
@@ -86,7 +85,7 @@ best_k <- NULL #najlepszy zestaw zmiennych
 R <- abs(R)
 
 for (i in 1:L) {
-  k <- c(1:8)[unlist(comb[i,])] #wiesz TRUE FALSE z naszego comb (które zmienne w tym wypadku bierzemy a które nie)
+  k <- c(1:n)[unlist(comb[i,])] #wiesz TRUE FALSE z naszego comb (które zmienne w tym wypadku bierzemy a które nie)
   H <- 0 #wyżej = z wektora logicznego wybierz tylko te wartości, które są TRUE
   
   for (j in k) {
@@ -102,7 +101,7 @@ for (i in 1:L) {
 best_H
 best_k
 return(colnames(data)[best_k + 1])}
-hellwig(data=data_cleaned)
+hellwig(data=data_cleaned, n=8)
 ```
 Metoda Hellwiga pokazała, że Life Ladder w największym stopniu zależy od PKB na osobę, wsparcia społecznego, przewidywanej długości życia, poziomu korupcji w kraju oraz pozytywnych emocji.
 
@@ -267,6 +266,7 @@ Dodanie factor(year) poprawia dopasowanie i ujawnia drobny efekt lat, ale nie po
 
 Możemy potraktować tę część projektu jako swego rodzaju eksperyment.
 
+## Podział świata na regiony
 ```{r}
 data_2<-data_clean
 data_2$Region <- countrycode(sourcevar = data_clean$Country.name,
@@ -306,8 +306,40 @@ data_2 %>%
 anova_region <- aov(Life.Ladder ~ factor(Region), data = data_2)
 summary(anova_region)
 
+data_2cleaned<-data_2 %>% select(-year, -Country.name, -Region)
+hellwig(data_2cleaned,9)
+
+train1 <- data_2 %>% slice_sample(prop = 0.9) 
+test1 <- anti_join(data_2, train)
+
+model3 <- lm(`Life.Ladder` ~  `Social.support` +
+              `Healthy.life.expectancy.at.birth`
+              + `Perceptions.of.corruption` + `Positive.affect` + factor(RegionCode),
+              data = train1)
+summary(model3)
+anova(model3, model2)
+AIC(model3, model2)
+vif(model3)
 
 
+pred1 <- predict(model3, newdata = test1, interval="prediction")
+df <- data.frame(
+  Actual = test1$Life.Ladder,
+  Prediction = pred1[, "fit"],
+  Lower = pred1[, "lwr"],
+  Upper = pred1[, "upr"]
+)
+
+df %>%
+  mutate(hit = if_else(Actual >= Lower & Actual <= Upper, TRUE, FALSE)) %>%
+  summarise(hitrate = mean(hit))
+# Autokorelacja
+dwtest(model3)
+
+#stabilność modelu
+#Test Ramseya
+resettest(model3)
+sctest(model3)
 ```
 ANOVA: p-value < 2e-16 → bardzo silne podstawy do odrzucenia H₀.
 
