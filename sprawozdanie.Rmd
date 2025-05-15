@@ -22,6 +22,7 @@ library(lmtest)
 library(countrycode)
 library(gridExtra)
 library(e1071)  
+library(randtests)
 ```
 
 ## 1. Wstęp
@@ -119,6 +120,15 @@ cat("Państwa z pełnymi danymi:\n", paste(kraje_z_danymi, collapse = ", "), "\n
 
 Finalnie analizy zostaną przeprowadzone na 902 wierszach.
 
+```{r}
+
+
+dane_finalne$binarna_2020 <- ifelse(dane_finalne$year == 2020, 1, 0)
+
+print(dane_finalne$binarna_2020)
+
+```
+
 ### 4b. Statystyki opisowe i wizualizacje zmiennych
 
 ```{r}
@@ -177,6 +187,7 @@ corrplot(cor(dane_finalne %>% select_if(is.numeric)), method = "circle", type = 
 ```
 
 ## 4. Podział na zbiór treningowy i testowy
+
 ```{r}
 set.seed(123)
 
@@ -185,23 +196,7 @@ train <- dane_finalne %>% slice_sample(prop = 0.9)
 test <- anti_join(dane_finalne, train)
 ```
 
-```{r split-data}
-set.seed(123)
-
-# Dodaj unikalny identyfikator wiersza
-dane_finalne <- dane_finalne %>%
-  mutate(row_id = row_number())
-
-# Wybierz losowo 90% danych do treningu
-train <- dane_finalne %>% slice_sample(prop = 0.9)
-
-# Dane testowe to pozostałe 10%
-test <- dane_finalne %>% filter(!row_id %in% train$row_id)
-
-# (opcjonalnie) usuń pomocniczy identyfikator
-train <- select(train, -row_id)
-test <- select(test, -row_id)
-
+```         
 ```
 
 ```{r}
@@ -282,7 +277,7 @@ Badamy tutaj, czy zmienne objaśniające są ze sobą silnie skorelowane. Wspól
 
 # Wybierz tylko dane numeryczne, bez 'Country.name' i 'year'
 num_data <- dane_finalne %>% 
-  select(-Country.name, -year ,-row_id)
+  select(-Country.name, -year)
 
 # Oblicz korelacje 'Log.GDP.per.capita' z innymi zmiennymi
 correlations_gdp <- cor(num_data, use = "complete.obs")[, "Log.GDP.per.capita"]
@@ -303,11 +298,13 @@ Rzeczywiście zmienna Log.GDP.per.capita jest bardzo silnie skorelowana ze zmien
 ```{r}
 model3 <- lm(`Life.Ladder` ~ `Social.support` +
               `Healthy.life.expectancy.at.birth` +
-               `Perceptions.of.corruption` +`Freedom.to.make.life.choices` ,
+               `Perceptions.of.corruption` +`Freedom.to.make.life.choices` +`binarna_2020`,
               data = train)
 summary(model3)
 plot(model3)
 vif(model3)
+
+
 ```
 
 W tym modelu wszystkie zmienne mają już wskaźnik VIF poniżej 2.
@@ -344,9 +341,17 @@ plot(train$Log.GDP.per.capita, res,
 abline(h = 0, col = "red")
 
 
+
+
+
 ```
 
 Wynik testu Breuscha-Pagana informuje o tym, czy w modelu występuje heteroskedastyczność, czyli zmienność wariancji reszt w zależności od wartości zmiennych objaśniających — co łamie jedno z podstawowych założeń regresji liniowej. Test ten pokazał, że w naszym modelu występuje heteroskedastyczność. Przy prognozowaniu nie jest to bardzo istotnym problemem.
+
+```{r}
+# Test serii
+runs.test(res)
+```
 
 ```{r diagnostics2}
 # Autokorelacja
@@ -445,6 +450,7 @@ Mimo że model_year ma lepsze dopasowanie do danych treningowych (niższy AIC, l
 Możemy potraktować tę część projektu jako swego rodzaju eksperyment.
 
 ## Podział świata na regiony
+
 ```{r}
 data_2<-dane_finalne
 data_2$Region <- countrycode(sourcevar = dane_finalne$Country.name,
@@ -525,7 +531,7 @@ resettest(model3)
 sctest(model3)
 ```
 
-ANOVA: p-value < 2e-16 → bardzo silne podstawy do odrzucenia H₀.
+ANOVA: p-value \< 2e-16 → bardzo silne podstawy do odrzucenia H₀.
 
 To oznacza, że region ma istotny wpływ na poziom szczęścia — przynależność regionalna wyjaśnia dużą część zmienności. Suma kwadratów dla regionu (1205) jest znacznie większa niż dla reszt (1505), co znaczy, że duża część wariancji Life Ladder jest związana z regionem. Regiony bardzo istotnie różnią się między sobą pod względem poziomu szczęścia. To idealne uzasadnienie, żeby uwzględniać region w modelach predykcyjnych lub interpretacyjnych.
 
@@ -534,4 +540,3 @@ To oznacza, że region ma istotny wpływ na poziom szczęścia — przynależno�
 Model wykazał, że największy wpływ na poziom zadowolenia z życia mają m.in. `Log GDP per capita`, `Social support` oraz `Freedom to make life choices`. Diagnoza reszt wskazuje na pewne odstępstwa od założeń klasycznego modelu liniowego, ale model osiąga stosunkowo niskie błędy (MAE, RMSE), co świadczy o dobrej jakości dopasowania.
 
 W kolejnym kroku możliwa jest rozbudowa analizy o modele panelowe z efektami stałymi lub losowymi, co może poprawić ujęcie efektów krajowych i czasowych.
-
