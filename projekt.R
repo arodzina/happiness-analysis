@@ -142,3 +142,54 @@ ggplot(dane, aes(x = `Log.GDP.per.capita`, y = `Life.Ladder`, color = factor(yea
   theme_minimal() +
   theme(panel.grid.major = element_line(linetype = "dashed", color = "grey")) +
   theme(legend.title = element_blank()) # Opcjonalnie, usuwa tytuł legendy
+
+#METODA HELLWIGA
+#w liczniku korelacja x z y a w mianowniku suma korelacji x z wszystkimi innymi zmiennymi objaśniającymi
+# korelacje
+
+cor_matrix<-cor(data_em)
+R0 <- cor_matrix[1,-1] #pierwszy wiersz bez pierwszej kolumny, żeby nie było korelacji y z samym sobą
+R <- cor_matrix[-1,-1] #odrzucamy kombinacje x z y (czyli mamy tylko kombinacje między iksami)
+L = 2^9 -1 #ile jest takich kombinacji
+#expand.grid tworzy wszystkie możliwe kombinacje wektorów
+comb<-expand.grid(rep(list(c(T,F)),9))
+k<-c(1:9)[unlist(comb[59,])]
+names(R0)[k] #przykład dla indeksu nr 59, jakie będą nazwy kolumn wzięte z naszej macierzy korelacji
+
+# metoda Hellwiga
+
+hellwig<-function(data) { #zał. y jest w pierwszej kolumnie
+cor_matrix <- cor(data)
+R0 <- cor_matrix[1, -1] #korelacja y z wszystkimi zmiennymi objaśniającymi
+R <- cor_matrix[-1,-1] #korelacjazmiennych objaśniających między sobą
+
+
+L <- 2^9-1
+
+comb <- expand.grid(rep(list(c(T, F)), 9))
+
+# pętla od 1 do L
+#szukamy kombinacji która ma największa H
+
+best_H <- 0 #najlepszy współczynnik H
+best_k <- NULL #najlepszy zestaw zmiennych
+
+R <- abs(R)
+
+for (i in 1:L) {
+  k <- c(1:9)[unlist(comb[i,])] #wiesz TRUE FALSE z naszego comb (które zmienne w tym wypadku bierzemy a które nie)
+  H <- 0 #wyżej = z wektora logicznego wybierz tylko te wartości, które są TRUE
+  
+  for (j in k) {
+    H = H + R0[j]^2/sum(R[j,k])
+  }
+  
+  if (H > best_H) {
+    best_H <- H
+    best_k <- k
+  }
+}
+
+best_H
+best_k
+return(colnames(data)[best_k + 1])}

@@ -1,8 +1,10 @@
 ---
 title: "Modelowanie dobrostanu subiektywnego na podstawie danych World Happiness Report"
-author: "Twoje Imię i nazwisko"
+authors: "Wiktoria Papiz, Aleksandra Rodzinka"
 date: "`r Sys.Date()`"
-output: html_document
+output:
+  html_document: default
+  pdf_document: default
 ---
 
 ```{r setup, include=FALSE}
@@ -18,52 +20,192 @@ library(ggplot2)
 library(strucchange)
 library(lmtest)
 library(countrycode)
+library(gridExtra)
+library(e1071)  
 ```
 
 ## 1. Wstęp
 
-Celem analizy jest zbudowanie modelu regresji liniowej, który przewiduje poziom zadowolenia z życia (Life Ladder) na podstawie zmiennych społeczno-ekonomicznych zawartych w raporcie World Happiness Report.
+Celem niniejszej analizy jest zbudowanie modelu regresji liniowej, który będzie przewidywał poziom zadowolenia z życia (Life Ladder) na podstawie zmiennych społeczno-ekonomicznych zawartych w raporcie World Happiness Report.
 
-## 2. Wczytanie i przygotowanie danych
+World Happiness Report to coroczna publikacja, która prezentuje rankingi szczęścia narodowego, bazujące na ocenach respondentów dotyczących ich własnego życia. Raport ten koreluje te subiektywne oceny z różnymi czynnikami jakości życia, takimi jak dochód, zdrowie, wsparcie społeczne, wolność wyboru, hojność oraz postrzeganie korupcji.
+
+Dane wykorzystywane w World Happiness Report pochodzą głównie z Gallup World Poll, czyli corocznego badania opinii publicznej przeprowadzanego w ponad 160 krajach i terytoriach, obejmujących ponad 98% dorosłej populacji na świecie. Respondenci oceniają swoje życie na skali od 0 do 10, znanej jako „drabina Cantrila”.
+
+W niniejszym projekcie koncentrujemy się na danych zawartych w raporcie wydanym w 2024 roku, a zatem najnowsze dostępne dane pochodzą z 2023 roku.
+
+Każdy rekord w zbiorze danych jest średnią różnych wskaźników dla danego kraju w określonym roku.
+
+## 2. Wczytanie danych
 
 ```{r load-data}
 data <- read.csv("World Happiness Report 2024.csv", sep = ";")
-data_clean <- na.omit(data)
-glimpse(data_clean)
 ```
 
-## 3. Statystyki opisowe i korelacje
+## 3. Usunięcie braków
+
+```{r usuniecie brakow}
+data_clean <- na.omit(data)
+dim(data)     
+dim(data_clean) 
+dim(data)[1] - dim(data_clean)[1]
+```
+
+W oryginalnych danych są 2363 rekordy. Po usunięciu wierszy z brakującymi wartościami pozostaje 2103 rekordy. Usunięto 260 wierszy.
+
+## 4. Opis zmiennych
+
+Dane zawierają 9 zmiennych:
+
+-   **Country name**: Kraj, dla którego dane zostały zgromadzone.
+
+-   **year**: Rok, w którym dane zostały zebrane.
+
+-   **Log GDP per capita:** Logarytm PKB na osobę, odzwierciedlający dobrobyt ekonomiczny i jego wpływ na szczęście.
+
+-   **Social support**: Miernik wskazujący poziom postrzeganego wsparcia społecznego lub dostępnych sieci wsparcia dla jednostek.
+
+-   **Healthy life expectancy at birth**: Liczba lat, które osoba może przeżyć w dobrym zdrowiu od momentu urodzenia.
+
+-   **Freedom to make life choices**: Miernik określający, jak wolni czują się ludzie w podejmowaniu decyzji życiowych.
+
+-   **Generosity:** Miernik odzwierciedlający poziom hojności lub darowizn charytatywnych w kraju.
+
+-   **Perceptions of corruption**: Miernik oceniający, jak korupcyjny uważany jest rząd, co wpływa na zaufanie i satysfakcję.
+
+-   **Life Ladder:** Główna zmienna w analizie, mierząca subiektywne zadowolenie z życia respondentów. Jest to zmienna numeryczna, której wartości są ocenami indywidualnymi respondentów na skali od 0 do 10, gdzie 10 oznacza najlepsze możliwe życie, a 0 najgorsze. Zmienna ta będzie zależna od innych zmiennych w modelu.
+
+### 4a. Typy zmiennych
+
+```{r typy zmiennych}
+class_table <- data.frame(Column = names(data_clean), Class = sapply(data_clean, class))
+print(class_table)
+```
+
+Wszystkie kolumny oprócz nazwy państwa są typu liczbowego.
+
+## Modyfikacja danych
+
+**Podczas analizy danych ustalono, że rok nie ma istotnego wpływu na poziom wskaźnika *Life Ladder*. W związku z tym, w dalszych analizach zmienne nie są rozdzielane względem roku.**
+
+Aby zapewnić wiarygodność analiz i porównywalność między krajami, dane zostały przefiltrowane w taki sposób, by każdy analizowany kraj miał taką samą liczbę obserwacji. Usunięto wszystkie rekordy dotyczące krajów, które nie posiadają pełnych danych dla każdego roku z zakresu 2013–2023.
+
+```{r}
+# Zakres lat
+lata_docelowe <- 2013:2023
+
+# Filtrowanie danych do wybranych lat
+dane_filtered <- data_clean %>%
+  filter(year %in% lata_docelowe)
+
+# Wyszukiwanie krajów z danymi we wszystkich 11 latach
+kraje_pelne_dane <- dane_filtered %>%
+  group_by(Country.name) %>%
+  summarise(liczba_lat = n_distinct(year)) %>%
+  filter(liczba_lat == length(lata_docelowe))
+
+# Lista krajów z pełnymi danymi
+kraje_z_danymi <- kraje_pelne_dane$Country.name
+
+# Ostateczne dane tylko dla tych krajów
+dane_finalne <- dane_filtered %>%
+  filter(Country.name %in% kraje_z_danymi)
+
+# Wyświetlenie liczby krajów i przykładowych danych
+cat("Liczba krajów z pełnymi danymi (2013–2023):", length(kraje_z_danymi), "\n")
+cat("Liczba pozostałych wierszy:", nrow(dane_finalne), "\n")
+cat("Państwa z pełnymi danymi:\n", paste(kraje_z_danymi, collapse = ", "), "\n")
+```
+
+Finalnie analizy zostaną przeprowadzone na 902 wierszach.
+
+### 4b. Statystyki opisowe i wizualizacje zmiennych
+
+```{r}
+describe(dane_finalne %>% select(-Country.name, -year))
+```
+
+### 4c. wykresy zmiennych
+
+```{r}
+library(ggplot2)
+library(gridExtra)
+library(grid)
+library(e1071)  # do skośności i kurtozy
+
+vars_to_plot <- names(dane_finalne)[sapply(dane_finalne, is.numeric) & names(dane_finalne) != "year"]
+
+for (var_name in vars_to_plot) {
+  
+  variable <- dane_finalne[[var_name]]
+  
+  num_bins <- 30
+  binwidth <- (max(variable, na.rm = TRUE) - min(variable, na.rm = TRUE)) / num_bins
+  
+  # Histogram z większą czcionką
+  histogram <- ggplot(dane_finalne, aes(x = .data[[var_name]])) + 
+    geom_histogram(binwidth = binwidth, fill = "lightblue", color = "black") +
+    labs(title = paste("Histogram -", var_name),
+         x = var_name,
+         y = "Częstość") +
+    theme_minimal(base_size = 16)  # większy tekst
+  
+  # Tabela statystyk – większa czcionka
+  stats_df <- data.frame(
+    Statystyki = c("Średnia", "Odch. std.", "Minimum", "Maksimum", "Mediana", "Skośność", "Kurtoza"),
+    Wartość = round(c(mean(variable, na.rm = TRUE),
+                      sd(variable, na.rm = TRUE),
+                      min(variable, na.rm = TRUE),
+                      max(variable, na.rm = TRUE),
+                      median(variable, na.rm = TRUE),
+                      skewness(variable, na.rm = TRUE),
+                      kurtosis(variable, na.rm = TRUE)), 3)
+  )
+  
+  stats_table <- tableGrob(stats_df, rows = NULL, theme = ttheme_default(base_size = 16))
+  
+  # Układ obok siebie
+  grid.arrange(histogram, stats_table, ncol = 2, widths = c(2.5, 1.5))
+}
+
+
+```
 
 ```{r desc-stats}
-describe(data_clean %>% select(-Country.name, -year))
-corrplot(cor(data_clean %>% select_if(is.numeric)), method = "circle", type = "upper")
+
+corrplot(cor(dane_finalne %>% select_if(is.numeric)), method = "circle", type = "upper")
 ```
 
-## 3a. Opis zmiennych 
-
-Country name: The country for which the data is reported.
-Year: The year in which the data was collected.
-Life Ladder: A measure of subjective well-being or life satisfaction on a scale where higher values generally indicate greater happiness.
-Log GDP per capita: The logarithm of GDP per capita, reflecting economic prosperity and its impact on happiness.
-Social support: A metric indicating the level of perceived social support or network available to individuals.
-Healthy life expectancy at birth: The number of years a person is expected to live in good health from birth.
-Freedom to make life choices: A measure of how free individuals feel in making life decisions.
-Generosity: A metric reflecting the level of generosity or charitable giving in a country.
-Perceptions of corruption: A measure of how corrupt the government is perceived to be, influencing trust and satisfaction.
-Positive affect: The level of positive emotions such as joy and contentment experienced by individuals.
-Negative affect: The level of negative emotions such as sadness and anxiety experienced by individuals.
-
 ## 4. Podział na zbiór treningowy i testowy
+```{r}
+set.seed(123)
+
+train <- dane_finalne %>% slice_sample(prop = 0.9)
+
+test <- anti_join(dane_finalne, train)
+```
 
 ```{r split-data}
 set.seed(123)
 
-train <- data_clean %>% slice_sample(prop = 0.9) 
-test <- anti_join(data_clean, train)
+# Dodaj unikalny identyfikator wiersza
+dane_finalne <- dane_finalne %>%
+  mutate(row_id = row_number())
+
+# Wybierz losowo 90% danych do treningu
+train <- dane_finalne %>% slice_sample(prop = 0.9)
+
+# Dane testowe to pozostałe 10%
+test <- dane_finalne %>% filter(!row_id %in% train$row_id)
+
+# (opcjonalnie) usuń pomocniczy identyfikator
+train <- select(train, -row_id)
+test <- select(test, -row_id)
+
 ```
 
 ```{r}
-data_cleaned = data_clean %>% select(-Country.name, -year) 
+data_cleaned = dane_finalne %>% select(-Country.name, -year) 
 # metoda Hellwiga
 
 hellwig<-function(data,n) { #zał. y jest w pierwszej kolumnie
@@ -101,28 +243,30 @@ for (i in 1:L) {
 best_H
 best_k
 return(colnames(data)[best_k + 1])}
-hellwig(data=data_cleaned, n=8)
+hellwig(data=data_cleaned, n=6)
 ```
-Metoda Hellwiga pokazała, że Life Ladder w największym stopniu zależy od PKB na osobę, wsparcia społecznego, przewidywanej długości życia, poziomu korupcji w kraju oraz pozytywnych emocji.
+
+Metoda Hellwiga pokazała, że Life Ladder w największym stopniu zależy od PKB na osobę, wsparcia społecznego, przewidywanej długości życia, poziomu korupcji w kraju oraz wolności w dokonywaniu życiowych wyborów.
 
 ## 5. Budowa modeli regresji liniowej
 
 ```{r fit-model}
 model <- lm(`Life.Ladder` ~ `Log.GDP.per.capita` + `Social.support` +
               `Healthy.life.expectancy.at.birth` + `Freedom.to.make.life.choices` +
-              Generosity + `Perceptions.of.corruption` + `Positive.affect` + `Negative.affect`,
+              Generosity + `Perceptions.of.corruption`,
               data = train)
 summary(model)
 resettest(model)
 
 model2 <- lm(`Life.Ladder` ~ `Log.GDP.per.capita` + `Social.support` +
               `Healthy.life.expectancy.at.birth` +
-               `Perceptions.of.corruption` + `Positive.affect`,
+               `Perceptions.of.corruption` +`Freedom.to.make.life.choices` ,
               data = train)
 summary(model2)
 plot(model2)
 ```
-Pierwszy model sprawdza istatność statystyczną wszystkich zmiennych i ich wpływ na Life Ladder. Okazuje się, że głównie Negative affect słabo objaśnia poziom satysfakcji życiowej. Z tego względu zrezygnujemy z tej zmiennej w drugim modelu. Dodatkowo nie użyjemy również Generosity i Freedom to make life choices, ponieważ nie zostały one wybrane metodą Hellwiga.
+
+Pierwszy model sprawdza istatność statystyczną wszystkich zmiennych i ich wpływ na Life Ladder. Okazuje się, że większość z nich dobrze objaśnia poziom satysfakcji życiowej. Najmniej istotna okazała się zmienna Generosity, z tego względu zrezygnujemy z tej zmiennej w drugim modelu. Pozostałe zmienne pokrywają się ze zmiennymi wybranymi metodą Hellwiga.
 
 ## 6. Diagnostyka modelu
 
@@ -130,10 +274,46 @@ Pierwszy model sprawdza istatność statystyczną wszystkich zmiennych i ich wp�
 # Współliniowość
 vif(model2)
 ```
-Badamy tutaj, czy zmienne objaśniające są ze sobą silnie skorelowane. Wspólniniowość występuje raczej niska lub umiarkowana. Dla poziomu PKB jest lekko wyższa, ale nie przekracza wartości 5, która stanowiłaby juz problem. Z tego względu nie trzeba korygować postaci modelu.
 
-```{r diagnostics}
-res <- model2$residuals
+Badamy tutaj, czy zmienne objaśniające są ze sobą silnie skorelowane. Wspólniniowość występuje raczej niska lub umiarkowana, jednak dla poziomu PKB jest wyższa, przekracza wartość 5. Z tego względu zbadamy wartość współczynnika korelacji tej zmiennej z pozostałymi zmiennymi objaśniającymi.
+
+```{r}
+
+
+# Wybierz tylko dane numeryczne, bez 'Country.name' i 'year'
+num_data <- dane_finalne %>% 
+  select(-Country.name, -year ,-row_id)
+
+# Oblicz korelacje 'Log.GDP.per.capita' z innymi zmiennymi
+correlations_gdp <- cor(num_data, use = "complete.obs")[, "Log.GDP.per.capita"]
+
+# Usuń samą korelację z sobą
+correlations_gdp <- correlations_gdp[names(correlations_gdp) != "Log.GDP.per.capita"]
+
+# Tworzymy ramkę danych z wynikami korelacji
+cor_data <- data.frame(Zmienna = names(correlations_gdp), Korelacja = round(correlations_gdp, 2))
+cor_data_sorted <- cor_data %>% arrange(desc(Korelacja))
+print(cor_data_sorted)
+
+
+```
+
+Rzeczywiście zmienna Log.GDP.per.capita jest bardzo silnie skorelowana ze zmiennymi Healthy.life.expectancy.at.birth oraz Social.support. Zostaje więc usunięta z modelu.
+
+```{r}
+model3 <- lm(`Life.Ladder` ~ `Social.support` +
+              `Healthy.life.expectancy.at.birth` +
+               `Perceptions.of.corruption` +`Freedom.to.make.life.choices` ,
+              data = train)
+summary(model3)
+plot(model3)
+vif(model3)
+```
+
+W tym modelu wszystkie zmienne mają już wskaźnik VIF poniżej 2.
+
+```{r diagnostics4}
+res <- model3$residuals
 hist(res)
 skewness(res)
 kurtosis(res)
@@ -141,16 +321,16 @@ kurtosis(res)
 shapiro.test(res)
 qqnorm(res); qqline(res)
 ```
-Sprawdzamy reszty modelu. Histogram pokazuje, że ich rozkład przypomina normalny, jest symetryczny względem zera i nie wykazuje wartości odstających, co dobrze świadczy. Test normalności Shapiro-Wilka wskazuje jednak, że powinniśmy odrzucić hipotezę zerową o normalności rozkładu. Z drugiej strony wykres kwantyl-kwantyl wygląda całkiem przyzwoicie. Większość punktów leży blisko linii prostej - oznacza to, że reszty są w przybliżeniu normalne w środku rozkładu.Odchylenia na końcach (lewa i prawa strona) — wskazują na lekkie odstępstwa w ogonach. Nie ma dramatycznych odchyleń, żadnych ekstremalnych punktów bardzo daleko od linii. Nawet gdy reszty nie mają rozkładu idealnie normalnego, to nie jest to problem, jeśli mamy dużą próbę i wykresy pozwalają na stwierdzenie podobieństwa do rozkładu normalnego. Dodatkowo naszym celem jest przecież prognoza, więc taki rozkład reszt modelu jest w porządku.
-Skośność bliska zeru. Tylko lekko dłuższy ogon po lewej stronie. Kurtoza niewiele ponad trzy oznacza wyszczuplony, wysoki rozkład - dużo wartości bliskich średniej, nieco cięższe ogony niż w rozkładzie normalnym.
 
-```{r diagnostics}
+Sprawdzamy reszty modelu. Histogram pokazuje, że ich rozkład przypomina normalny, jest symetryczny względem zera i nie wykazuje wartości odstających, co dobrze świadczy. Test normalności Shapiro-Wilka wskazuje jednak, że powinniśmy odrzucić hipotezę zerową o normalności rozkładu. Z drugiej strony wykres kwantyl-kwantyl wygląda całkiem przyzwoicie. Większość punktów leży blisko linii prostej - oznacza to, że reszty są w przybliżeniu normalne w środku rozkładu.Odchylenia na końcach (lewa i prawa strona) — wskazują na lekkie odstępstwa w ogonach. Nie ma dramatycznych odchyleń, żadnych ekstremalnych punktów bardzo daleko od linii. Nawet gdy reszty nie mają rozkładu idealnie normalnego, to nie jest to problem, jeśli mamy dużą próbę i wykresy pozwalają na stwierdzenie podobieństwa do rozkładu normalnego. Dodatkowo naszym celem jest przecież prognoza, więc taki rozkład reszt modelu jest w porządku. Skośność bliska zeru. Tylko lekko dłuższy ogon po lewej stronie. Kurtoza niewiele ponad trzy oznacza wyszczuplony, wysoki rozkład - dużo wartości bliskich średniej, nieco cięższe ogony niż w rozkładzie normalnym.
+
+```{r diagnostics3}
 # Heteroskedastyczność
-bptest(model2)
+bptest(model3)
 
 #tu chyba badamy heteroskedastyczność jeśli chodzi o  PKB ale nie wiem jakie wnioski napisać
 
-gqtest(model2, point = 0.5, order.by = ~Log.GDP.per.capita, data = train)
+gqtest(model3, point = 0.5,  data = train)
 
 plot(train$Log.GDP.per.capita, train$Life.Ladder,
      xlab = "Log GDP per Capita", ylab = "Life Ladder",
@@ -165,28 +345,29 @@ abline(h = 0, col = "red")
 
 
 ```
+
 Wynik testu Breuscha-Pagana informuje o tym, czy w modelu występuje heteroskedastyczność, czyli zmienność wariancji reszt w zależności od wartości zmiennych objaśniających — co łamie jedno z podstawowych założeń regresji liniowej. Test ten pokazał, że w naszym modelu występuje heteroskedastyczność. Przy prognozowaniu nie jest to bardzo istotnym problemem.
 
-```{r diagnostics}
+```{r diagnostics2}
 # Autokorelacja
-dwtest(model2)
+dwtest(model3)
 
 #stabilność modelu
 #Test Ramseya
-resettest(model2)
-sctest(model2)
+resettest(model3)
+sctest(model3)
 ```
+
 Wynik testu Durbin-Watsona ocenia, czy w resztach modelu występuje autokorelacja — czyli zależność reszt między sobą. DW = 1,89 oznacza istotną statystycznie autokorelację reszt.
 
 Wynik drugi pochodzi z RESET testu (Ramsey Regression Equation Specification Error Test), który sprawdza, czy w modelu regresji liniowej brakuje ważnych zmiennych lub występuje nieliniowość nieujęta w modelu. Odrzucamy H0 na korzyść hipotezy alternatywna (H₁): model jest źle wyspecyfikowany — być może brakuje jakichś istotnych zmiennych, relacje między zmiennymi są nieliniowe, ale model zakłada liniowość.
 
-Wynik testu M-fluctuation dotyczy stabilności parametrów modelu regresji w czasie lub w innej kolejności danych (np. wg roku, kraju itp.). Model model2 jest parametrycznie stabilny — nie widać, by jego współczynniki zmieniały się istotnie w czasie lub między grupami danych.
-To dobry znak, szczególnie przy danych wieloletnich, bo sugeruje, że relacje między zmiennymi są trwałe i spójne.
+Wynik testu M-fluctuation dotyczy stabilności parametrów modelu regresji w czasie lub w innej kolejności danych (np. wg roku, kraju itp.). Model model2 jest parametrycznie stabilny — nie widać, by jego współczynniki zmieniały się istotnie w czasie lub między grupami danych. To dobry znak, szczególnie przy danych wieloletnich, bo sugeruje, że relacje między zmiennymi są trwałe i spójne.
 
 ## 7. Prognoza i ocena modelu
 
 ```{r prediction}
-pred <- predict(model2, newdata = test, interval="p")
+pred <- predict(model3, newdata = test, interval="p")
 mae <- mean(abs(pred - test$`Life.Ladder`))
 rmse <- sqrt(mean((pred - test$`Life.Ladder`)^2))
 mae
@@ -203,12 +384,10 @@ df %>%
   mutate(hit = if_else(Actual >= Lower & Actual <= Upper, TRUE, FALSE)) %>%
   summarise(hitrate = mean(hit))
 ```
-MAE (Mean Absolute Error) = 0.4267
-→ Średni błąd bezwzględny prognozy: model myli się średnio o 0.43 jednostki w przewidywaniu poziomu szczęścia (Life.Ladder).
 
-RMSE (Root Mean Square Error) = 0.5551
-→ Błąd średniokwadratowy: uwzględnia większe kary dla dużych błędów.
-Zarówno MAE < 0.5, jak i RMSE < 0.6, co przy skali Life.Ladder (zwykle 0–10) oznacza, że model radzi sobie dobrze z predykcją.
+MAE (Mean Absolute Error) = 0.4267 → Średni błąd bezwzględny prognozy: model myli się średnio o 0.43 jednostki w przewidywaniu poziomu szczęścia (Life.Ladder).
+
+RMSE (Root Mean Square Error) = 0.5551 → Błąd średniokwadratowy: uwzględnia większe kary dla dużych błędów. Zarówno MAE \< 0.5, jak i RMSE \< 0.6, co przy skali Life.Ladder (zwykle 0–10) oznacza, że model radzi sobie dobrze z predykcją.
 
 Różnica między RMSE a MAE jest umiarkowana, co oznacza, że nie ma dużych ekstremalnych błędów.
 
@@ -227,16 +406,17 @@ plot(test$Life.Ladder, pred[,"fit"],
 abline(0, 1, col = "red", lwd = 2)
 
 # Wykres reszt
-ggplot(data.frame(resid = residuals(model2), fitted = fitted(model2)),
+ggplot(data.frame(resid = residuals(model3), fitted = fitted(model2)),
        aes(x = fitted, y = resid)) +
   geom_point() +
   geom_hline(yintercept = 0, color = "red") +
   labs(title = "Reszty vs dopasowane wartości", x = "Dopasowane", y = "Reszty")
 ```
+
 ```{r}
 model_year <- lm(Life.Ladder ~ Log.GDP.per.capita + Social.support +
                    Healthy.life.expectancy.at.birth + Perceptions.of.corruption +
-                   Positive.affect + factor(year), data = train)
+                    factor(year), data = train)
 summary(model_year)
 anova(model2, model_year)
 AIC(model2, model_year)
@@ -255,21 +435,19 @@ RMSE <- sqrt(mean(error^2))
 cat("MAE:", MAE, "\nMAPE:", MAPE, "\nRMSE:", RMSE, "\n")
 resettest(model_year)
 ```
+
 Próba stworzenia modelu uwzględniającego czas. Żaden rok nie jest istotny statystycznie — wszystkie mają p-value znacznie powyżej 0.05. To oznacza, że po uwzględnieniu innych zmiennych (gospodarka, zdrowie itd.), sam rok nie wnosi istotnej zmiany w poziomie szczęścia. Możliwe, że trendy czasowe są już "wychwycone" przez inne zmienne. Anova daje nam jednak informację, że RSS (Residual Sum of Squares) spadło z 545.49 do 532.57, co oznacza, że model 2 lepiej dopasowuje się do danych. Test F sprawdza, czy ta poprawa jest istotna statystycznie. p-value = 0.0004378 → oznacza, że poprawa dopasowania jest istotna na poziomie istotności 0.001. Choć żaden pojedynczy rok w modelu nie był istotny, to rok jako grupa zmiennych kategorycznych wnosi statystycznie istotną informację. Dodanie factor(year) poprawia dopasowanie modelu. Rok wnosi coś istotnego statystycznie, bo nawet niewielka poprawa dopasowania (spadek RSS) przy tak dużej liczbie danych oznacza, że efekt roku jest realny, a nie losowy.
 
-AIC (Akaike Information Criterion) jest również niższy dla model_year. Mimo że model_year ma więcej parametrów (25 vs 7), to i tak wyraźnie lepiej dopasowuje się do danych po uwzględnieniu złożoności.
-To kolejny dowód (po ANOVA), że dodanie factor(year) ma sens i jest uzasadnione statystycznie.
+AIC (Akaike Information Criterion) jest również niższy dla model_year. Mimo że model_year ma więcej parametrów (25 vs 7), to i tak wyraźnie lepiej dopasowuje się do danych po uwzględnieniu złożoności. To kolejny dowód (po ANOVA), że dodanie factor(year) ma sens i jest uzasadnione statystycznie.
 
-Mimo że model_year ma lepsze dopasowanie do danych treningowych (niższy AIC, lepszy ANOVA), jego trafność predykcji na danych testowych jest minimalnie gorsza.
-Różnice są jednak bardzo niewielkie i mogą być przypadkowe (w granicach błędu).
-Dodanie factor(year) poprawia dopasowanie i ujawnia drobny efekt lat, ale nie poprawia (ani nie pogarsza znacząco) trafności prognozy.
+Mimo że model_year ma lepsze dopasowanie do danych treningowych (niższy AIC, lepszy ANOVA), jego trafność predykcji na danych testowych jest minimalnie gorsza. Różnice są jednak bardzo niewielkie i mogą być przypadkowe (w granicach błędu). Dodanie factor(year) poprawia dopasowanie i ujawnia drobny efekt lat, ale nie poprawia (ani nie pogarsza znacząco) trafności prognozy.
 
 Możemy potraktować tę część projektu jako swego rodzaju eksperyment.
 
 ## Podział świata na regiony
 ```{r}
-data_2<-data_clean
-data_2$Region <- countrycode(sourcevar = data_clean$Country.name,
+data_2<-dane_finalne
+data_2$Region <- countrycode(sourcevar = dane_finalne$Country.name,
                            origin = "country.name",
                            destination = "region")
 data_2$RegionCode <- as.numeric(factor(data_2$Region))
@@ -307,14 +485,19 @@ anova_region <- aov(Life.Ladder ~ factor(Region), data = data_2)
 summary(anova_region)
 
 data_2cleaned<-data_2 %>% select(-year, -Country.name, -Region)
-hellwig(data_2cleaned,9)
+region_dummies <- model.matrix(~ factor(RegionCode) - 1, data = data_2cleaned)
+hellwig_data <- cbind(data_2cleaned, region_dummies)
+hellwig_data <- hellwig_data %>% select(-RegionCode)
+
+hellwig(hellwig_data,13)
+cor(hellwig_data$Life.Ladder, region_dummies)
 
 train1 <- data_2 %>% slice_sample(prop = 0.9) 
 test1 <- anti_join(data_2, train)
 
 model3 <- lm(`Life.Ladder` ~  `Social.support` +
               `Healthy.life.expectancy.at.birth`
-              + `Perceptions.of.corruption` + `Positive.affect` + factor(RegionCode),
+              + `Perceptions.of.corruption` + factor(RegionCode),
               data = train1)
 summary(model3)
 anova(model3, model2)
@@ -341,13 +524,14 @@ dwtest(model3)
 resettest(model3)
 sctest(model3)
 ```
+
 ANOVA: p-value < 2e-16 → bardzo silne podstawy do odrzucenia H₀.
 
-To oznacza, że region ma istotny wpływ na poziom szczęścia — przynależność regionalna wyjaśnia dużą część zmienności. Suma kwadratów dla regionu (1205) jest znacznie większa niż dla reszt (1505), co znaczy, że duża część wariancji Life Ladder jest związana z regionem. Regiony bardzo istotnie różnią się między sobą pod względem poziomu szczęścia.
-To idealne uzasadnienie, żeby uwzględniać region w modelach predykcyjnych lub interpretacyjnych.
+To oznacza, że region ma istotny wpływ na poziom szczęścia — przynależność regionalna wyjaśnia dużą część zmienności. Suma kwadratów dla regionu (1205) jest znacznie większa niż dla reszt (1505), co znaczy, że duża część wariancji Life Ladder jest związana z regionem. Regiony bardzo istotnie różnią się między sobą pod względem poziomu szczęścia. To idealne uzasadnienie, żeby uwzględniać region w modelach predykcyjnych lub interpretacyjnych.
 
 ## 9. Podsumowanie (do zmiany)
 
 Model wykazał, że największy wpływ na poziom zadowolenia z życia mają m.in. `Log GDP per capita`, `Social support` oraz `Freedom to make life choices`. Diagnoza reszt wskazuje na pewne odstępstwa od założeń klasycznego modelu liniowego, ale model osiąga stosunkowo niskie błędy (MAE, RMSE), co świadczy o dobrej jakości dopasowania.
 
 W kolejnym kroku możliwa jest rozbudowa analizy o modele panelowe z efektami stałymi lub losowymi, co może poprawić ujęcie efektów krajowych i czasowych.
+
