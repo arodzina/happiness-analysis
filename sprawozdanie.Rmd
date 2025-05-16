@@ -120,13 +120,34 @@ cat("Państwa z pełnymi danymi:\n", paste(kraje_z_danymi, collapse = ", "), "\n
 
 Finalnie analizy zostaną przeprowadzone na 902 wierszach.
 
+```{# Wybór zmiennych numerycznych}
+num_data <- dane_finalne %>% select_if(is.numeric)
+
+# Obliczanie macierzy korelacji
+cor_matrix <- cor(num_data, use = "complete.obs")
+
+# Wyświetlenie tabeli
+
+print(round(cor_matrix, 2))
+```
+
 ```{r}
 
 
-dane_finalne$binarna_2020 <- ifelse(dane_finalne$year == 2020, 1, 0)
+```
 
-print(dane_finalne$binarna_2020)
+```{r}
 
+
+dane_finalne$binarna_2020 <- ifelse(dane_finalne$year == 2021, 1, 0)
+dane_finalne <- dane_finalne %>% select(-binarna)
+
+model60 <- lm(`Life.Ladder` ~ `Social.support` +
+              `Healthy.life.expectancy.at.birth` +
+               `Perceptions.of.corruption` +`Freedom.to.make.life.choices` +Country.name,
+              data = train)
+summary(model60)
+vif(model60)
 ```
 
 ### 4b. Statystyki opisowe i wizualizacje zmiennych
@@ -182,8 +203,41 @@ for (var_name in vars_to_plot) {
 ```
 
 ```{r desc-stats}
+library(ggplot2)
+library(reshape2)
+library(dplyr)
 
-corrplot(cor(dane_finalne %>% select_if(is.numeric)), method = "circle", type = "upper")
+# Wybór danych numerycznych i obliczenie korelacji
+num_data <- dane_finalne %>% select_if(is.numeric)
+cor_matrix <- cor(num_data, use = "complete.obs")
+cor_melted <- melt(cor_matrix)
+
+# Heatmapa z poprawioną estetyką
+ggplot(cor_melted, aes(x = Var1, y = Var2, fill = value)) +
+  geom_tile(color = "white", linewidth = 0.5) +  # cieńsze krawędzie
+  scale_fill_gradient2(
+    low = "#2166AC",  # ciemnoniebieski
+    mid = "white",
+    high = "#B2182B", # ciemnoczerwony
+    midpoint = 0,
+    limit = c(-1, 1),
+    name = "Korelacja"
+  ) +
+  geom_text(aes(label = ifelse(Var1 == Var2, "", sprintf("%.2f", value))), 
+            size = 3.5, color = "black") +  # bez cyfr na przekątnej
+  theme_minimal(base_size = 12) +
+  theme(
+    axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1),
+    axis.title = element_blank(),
+    panel.grid = element_blank(),
+    panel.border = element_blank(),
+    plot.title = element_text(hjust = 0.5, face = "bold")
+  ) +
+  coord_fixed() +
+  labs(title = "Heatmapa korelacji")
+
+
+
 ```
 
 ## 4. Podział na zbiór treningowy i testowy
