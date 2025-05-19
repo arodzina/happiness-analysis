@@ -10,11 +10,13 @@ output:
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
+
 library(caret)
 library(car)
 library(corrplot)
 library(sandwich)
 library(psych)
+
 library(moments)
 library(ggplot2)
 library(strucchange)
@@ -22,7 +24,9 @@ library(lmtest)
 library(countrycode)
 library(gridExtra)
 library(e1071)  
+
 library(randtests)
+
 ```
 
 ## 1. Wstęp
@@ -120,7 +124,7 @@ cat("Państwa z pełnymi danymi:\n", paste(kraje_z_danymi, collapse = ", "), "\n
 
 Finalnie analizy zostaną przeprowadzone na 902 wierszach.
 
-```{# Wybór zmiennych numerycznych}
+```{r}
 num_data <- dane_finalne %>% select_if(is.numeric)
 
 # Obliczanie macierzy korelacji
@@ -331,7 +335,7 @@ Badamy tutaj, czy zmienne objaśniające są ze sobą silnie skorelowane. Wspól
 
 # Wybierz tylko dane numeryczne, bez 'Country.name' i 'year'
 num_data <- dane_finalne %>% 
-  select(-Country.name, -year)
+  select(-Country.name, -year, -Life.Ladder)
 
 # Oblicz korelacje 'Log.GDP.per.capita' z innymi zmiennymi
 correlations_gdp <- cor(num_data, use = "complete.obs")[, "Log.GDP.per.capita"]
@@ -352,7 +356,7 @@ Rzeczywiście zmienna Log.GDP.per.capita jest bardzo silnie skorelowana ze zmien
 ```{r}
 model3 <- lm(`Life.Ladder` ~ `Social.support` +
               `Healthy.life.expectancy.at.birth` +
-               `Perceptions.of.corruption` +`Freedom.to.make.life.choices` +`binarna_2020`,
+               `Perceptions.of.corruption` +`Freedom.to.make.life.choices` ,
               data = train)
 summary(model3)
 plot(model3)
