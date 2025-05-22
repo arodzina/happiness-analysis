@@ -146,8 +146,7 @@ plot(model2)
 
 vif(model2)
 
-num_data <- dane_finalne %>% 
-  select(-Country.name, -year, -Life.Ladder)
+
 
 correlations_gdp <- cor(num_data, use = "complete.obs")[, "Log.GDP.per.capita"]
 correlations_gdp <- correlations_gdp[names(correlations_gdp) != "Log.GDP.per.capita"]
