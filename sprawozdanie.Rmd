@@ -143,8 +143,6 @@ print(round(cor_matrix, 2))
 ```{r}
 
 
-dane_finalne$binarna_2020 <- ifelse(dane_finalne$year == 2021, 1, 0)
-dane_finalne <- dane_finalne %>% select(-binarna)
 
 model60 <- lm(`Life.Ladder` ~ `Social.support` +
               `Healthy.life.expectancy.at.birth` +
@@ -212,7 +210,10 @@ library(reshape2)
 library(dplyr)
 
 # Wybór danych numerycznych i obliczenie korelacji
-num_data <- dane_finalne %>% select_if(is.numeric)
+num_data <- dane_finalne %>% 
+  select_if(is.numeric) %>% 
+  select(-year)
+
 cor_matrix <- cor(num_data, use = "complete.obs")
 cor_melted <- melt(cor_matrix)
 

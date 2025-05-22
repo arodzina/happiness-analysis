@@ -1,195 +1,301 @@
-# Wczytanie potrzebnych bibliotek
+knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
-library(skimr)
-library(naniar)
+library(caret)
+library(car)
+library(corrplot)
+library(sandwich)
+library(psych)
+library(moments)
+library(ggplot2)
+library(strucchange)
+library(lmtest)
+library(countrycode)
+library(gridExtra)
+library(e1071)  
+library(randtests)
 
-# Wczytanie danych
-dane <- read.csv("World Happiness Report 2024.csv", sep = ";")
+data <- read.csv("World Happiness Report 2024.csv", sep = ";")
+data_clean <- na.omit(data)
 
-# Podgląd danych
-head(dane)
+dim(data)     
+dim(data_clean) 
+dim(data)[1] - dim(data_clean)[1]
 
-# Sprawdzenie liczby braków w każdej kolumnie
-colSums(is.na(dane))
-# Procent braków dla każdej kolumny
-miss_var_summary(dane)
-dane <- na.omit(dane)  
+class_table <- data.frame(Column = names(data_clean), Class = sapply(data_clean, class))
+print(class_table)
 
-# Podstawowe statystyki opisowe
-summary(dane)
-# Statystyki rozszerzone
-skim(dane)
+lata_docelowe <- 2013:2023
 
-# Liczba krajów i lat
-dane %>%
-  summarise(liczba_krajow = n_distinct(Country.name),
-            liczba_lat = n_distinct(year))
-#ile lat jest dla każdego kraju 
-country_counts <- table(dane$Country.name)
-print(sort(country_counts))
-hist(country_counts)
-
-# Zliczamy liczbę lat, dla których każdy kraj ma dane
-country_year_counts <- table(dane$Country.name, dane$year)
-# Liczymy, ile krajów ma dokładnie 18 lat
-countries_with_18_years <- sum(rowSums(country_year_counts == 1) >14 )
-# Wyświetlamy wynik
-print(countries_with_18_years)
-# Tworzymy tabelę, która pokazuje liczbę wystąpień krajów w każdym roku
-yearly_country_counts <- table(dane$year)
-# Tworzymy data frame z latami i liczbą krajów w danym roku
-yearly_country_df <- data.frame(year = as.numeric(names(yearly_country_counts)), 
-                                country_count = as.numeric(yearly_country_counts))
-
-# Wyświetlamy wynik
-print(yearly_country_df)
-
-#wnioski: 
-
-hist(dane$Positive.affect)
-#1. w 2011 najwiecej krajów, w 2023 jest 120 krajów - regresja dla 2023 + regresja dla 2013
-
-
-
-# Definiujemy interesujący nas zakres lat
-lata_docelowe <- 2017:2023
-
-# Filtrowanie danych tylko dla lat 2013–2023
-dane_filtered <- dane %>%
+dane_filtered <- data_clean %>%
   filter(year %in% lata_docelowe)
 
-# Tworzymy tabelę: liczba wystąpień dla każdego kraju w tych latach
-kraj_lata <- dane_filtered %>%
+kraje_pelne_dane <- dane_filtered %>%
   group_by(Country.name) %>%
   summarise(liczba_lat = n_distinct(year)) %>%
-  filter(liczba_lat == length(lata_docelowe))  
+  filter(liczba_lat == length(lata_docelowe))
 
-# Liczba takich krajów
-liczba_krajow_bez_przerwy <- nrow(kraj_lata)
-print(liczba_krajow_bez_przerwy)
+kraje_z_danymi <- kraje_pelne_dane$Country.name
 
+dane_finalne <- dane_filtered %>%
+  filter(Country.name %in% kraje_z_danymi)
 
-# Tworzenie nowej tabeli tylko z danymi z 2023 roku
-dane_2023 <- dane %>%
-  filter(year == 2023)
-dane_2023 <- dane_2023 %>% select(-year)
-#korelacje 
-library(corrplot)
+cat("Liczba krajów z pełnymi danymi (2013–2023):", length(kraje_z_danymi), "\n")
+cat("Liczba pozostałych wierszy:", nrow(dane_finalne), "\n")
+cat("Państwa z pełnymi danymi:\n", paste(kraje_z_danymi, collapse = ", "), "\n")
 
-num_data <- dane_2023 %>%
-  select(where(is.numeric))  # tylko kolumny liczbowe
-cor_matrix <- cor(num_data, use = "complete.obs")  # ignoruje NA
-corrplot(cor_matrix, method = "color", 
-         tl.col = "black", tl.cex = 0.8, number.cex = 0.7,
-         addCoef.col = "black", order = "hclust")
-#z macierzy korelacji wynika, że Generosity nie wpływa na nic. PKB, długośc życia, drabina życiowa i social support są silnie zależne od siebie. Nevative effect ma mocniejsze korelacje z pozostałymi zmiennymi niż positive effect. Positive effect ma prawie wszystkie dodatnie korelacje a negative ujemne
+num_data <- dane_finalne %>% select_if(is.numeric)
+cor_matrix <- cor(num_data, use = "complete.obs")
+print(round(cor_matrix, 2))
+describe(dane_finalne %>% select(-Country.name, -year))
+describe(dane_finalne %>% select(-Country.name, -year))
 
-#modele dla 2023
-#pozytywny efekt
-model<-lm(Positive.affect~.-Country.name-year-Negative.affect,dane_2023)
-summary(model)
-model<-lm(Positive.affect~.-Country.name-Negative.affect-Perceptions.of.corruption-Social.support-Log.GDP.per.capita-Generosity,dane_2023)
-summary(model)
-
-#negatywny efekt
-model<-lm(Negative.affect~.-Country.name-year-Positive.affect,dane_2023)
-summary(model)
-
-model<-lm(Negative.affect~.-Country.name-year-Positive.affect-Life.Ladder-Generosity-Perceptions.of.corruption,dane_2023)
-summary(model)
-
-#rok 2013
-dane_2013 <- dane_2013 %>% select(-year)
-#korelacje 
-
-dane_2013 <- dane %>%
-  filter(year == 2013)
-dane_2013 <- dane_2013 %>% select(-year)
-num_data <- dane_2013 %>%
-  select(where(is.numeric))  # tylko kolumny liczbowe
-
-cor_matrix <- cor(num_data, use = "complete.obs")  # ignoruje NA
-corrplot(cor_matrix, method = "color", 
-         tl.col = "black", tl.cex = 0.8, number.cex = 0.7,
-         addCoef.col = "black", order = "hclust")
-
-model<-lm(Positive.affect~.-Country.name-Negative.affect,dane_2013)
-summary(model)
-
-model<-lm(Positive.affect~.-Country.name-Negative.affect-Perceptions.of.corruption -Generosity -Healthy.life.expectancy.at.birth,dane_2013)
-summary(model)
-#negatywny efekt
-model<-lm(Negative.affect~.-Country.name-year-Positive.affect,dane_2023)
-summary(model)
-
-model<-lm(Freedom.to.make.life.choices~.-Country.name-Life.Ladder-Negative.affect-Log.GDP.per.capita-Healthy.life.expectancy.at.birth,dane_2013)
-summary(model)
-
-
-
-
-#scatter plot 
-# Załaduj bibliotekę ggplot2
 library(ggplot2)
+library(gridExtra)
+library(grid)
+library(e1071)
 
-# Wykres
-ggplot(dane, aes(x = `Log.GDP.per.capita`, y = `Life.Ladder`, color = factor(year))) +
-  geom_point(alpha = 0.7) +
-  scale_color_viridis_d() + # Używa palety 'viridis' dla kolorów
-  labs(title = 'Log GDP per Capita vs. Life Ladder', 
-       x = 'Log GDP per Capita', 
-       y = 'Life Ladder') +
-  theme_minimal() +
-  theme(panel.grid.major = element_line(linetype = "dashed", color = "grey")) +
-  theme(legend.title = element_blank()) # Opcjonalnie, usuwa tytuł legendy
+vars_to_plot <- names(dane_finalne)[sapply(dane_finalne, is.numeric) & names(dane_finalne) != "year"]
 
-#METODA HELLWIGA
-#w liczniku korelacja x z y a w mianowniku suma korelacji x z wszystkimi innymi zmiennymi objaśniającymi
-# korelacje
-
-cor_matrix<-cor(data_em)
-R0 <- cor_matrix[1,-1] #pierwszy wiersz bez pierwszej kolumny, żeby nie było korelacji y z samym sobą
-R <- cor_matrix[-1,-1] #odrzucamy kombinacje x z y (czyli mamy tylko kombinacje między iksami)
-L = 2^9 -1 #ile jest takich kombinacji
-#expand.grid tworzy wszystkie możliwe kombinacje wektorów
-comb<-expand.grid(rep(list(c(T,F)),9))
-k<-c(1:9)[unlist(comb[59,])]
-names(R0)[k] #przykład dla indeksu nr 59, jakie będą nazwy kolumn wzięte z naszej macierzy korelacji
-
-# metoda Hellwiga
-
-hellwig<-function(data) { #zał. y jest w pierwszej kolumnie
-cor_matrix <- cor(data)
-R0 <- cor_matrix[1, -1] #korelacja y z wszystkimi zmiennymi objaśniającymi
-R <- cor_matrix[-1,-1] #korelacjazmiennych objaśniających między sobą
-
-
-L <- 2^9-1
-
-comb <- expand.grid(rep(list(c(T, F)), 9))
-
-# pętla od 1 do L
-#szukamy kombinacji która ma największa H
-
-best_H <- 0 #najlepszy współczynnik H
-best_k <- NULL #najlepszy zestaw zmiennych
-
-R <- abs(R)
-
-for (i in 1:L) {
-  k <- c(1:9)[unlist(comb[i,])] #wiesz TRUE FALSE z naszego comb (które zmienne w tym wypadku bierzemy a które nie)
-  H <- 0 #wyżej = z wektora logicznego wybierz tylko te wartości, które są TRUE
+for (var_name in vars_to_plot) {
+  variable <- dane_finalne[[var_name]]
+  num_bins <- 30
+  binwidth <- (max(variable, na.rm = TRUE) - min(variable, na.rm = TRUE)) / num_bins
   
-  for (j in k) {
-    H = H + R0[j]^2/sum(R[j,k])
-  }
+  histogram <- ggplot(dane_finalne, aes(x = .data[[var_name]])) + 
+    geom_histogram(binwidth = binwidth, fill = "lightblue", color = "black") +
+    labs(title = paste("Histogram -", var_name), x = var_name, y = "Częstość") +
+    theme_minimal(base_size = 16)
   
-  if (H > best_H) {
-    best_H <- H
-    best_k <- k
-  }
+  stats_df <- data.frame(
+    Statystyki = c("Średnia", "Odch. std.", "Minimum", "Maksimum", "Mediana", "Skośność", "Kurtoza"),
+    Wartość = round(c(mean(variable, na.rm = TRUE),
+                      sd(variable, na.rm = TRUE),
+                      min(variable, na.rm = TRUE),
+                      max(variable, na.rm = TRUE),
+                      median(variable, na.rm = TRUE),
+                      skewness(variable, na.rm = TRUE),
+                      kurtosis(variable, na.rm = TRUE)), 3)
+  )
+  
+  stats_table <- tableGrob(stats_df, rows = NULL, theme = ttheme_default(base_size = 16))
+  grid.arrange(histogram, stats_table, ncol = 2, widths = c(2.5, 1.5))
 }
 
-best_H
-best_k
-return(colnames(data)[best_k + 1])}
+library(reshape2)
+library(dplyr)
+
+num_data <- dane_finalne %>% select_if(is.numeric)
+cor_matrix <- cor(num_data, use = "complete.obs")
+cor_melted <- melt(cor_matrix)
+
+ggplot(cor_melted, aes(x = Var1, y = Var2, fill = value)) +
+  geom_tile(color = "white", linewidth = 0.5) +
+  scale_fill_gradient2(low = "#2166AC", mid = "white", high = "#B2182B", midpoint = 0, limit = c(-1, 1), name = "Korelacja") +
+  geom_text(aes(label = ifelse(Var1 == Var2, "", sprintf("%.2f", value))), size = 3.5, color = "black") +
+  theme_minimal(base_size = 12) +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1), axis.title = element_blank(), panel.grid = element_blank(), panel.border = element_blank(), plot.title = element_text(hjust = 0.5, face = "bold")) +
+  coord_fixed() +
+  labs(title = "Heatmapa korelacji")
+
+set.seed(123)
+
+train <- dane_finalne %>% slice_sample(prop = 0.9)
+test <- anti_join(dane_finalne, train)
+
+data_cleaned = dane_finalne %>% select(-Country.name, -year) 
+
+hellwig <- function(data, n) {
+  cor_matrix <- cor(data)
+  R0 <- cor_matrix[1, -1]
+  R <- cor_matrix[-1, -1]
+  L <- 2^n - 1
+  comb <- expand.grid(rep(list(c(T, F)), n))
+  best_H <- 0
+  best_k <- NULL
+  R <- abs(R)
+  
+  for (i in 1:L) {
+    k <- c(1:n)[unlist(comb[i, ])]
+    H <- 0
+    for (j in k) {
+      H = H + R0[j]^2 / sum(R[j, k])
+    }
+    if (H > best_H) {
+      best_H <- H
+      best_k <- k
+    }
+  }
+  return(colnames(data)[best_k + 1])
+}
+
+hellwig(data = data_cleaned, n = 6)
+
+model <- lm(`Life.Ladder` ~ `Log.GDP.per.capita` + `Social.support` +
+              `Healthy.life.expectancy.at.birth` + `Freedom.to.make.life.choices` +
+              Generosity + `Perceptions.of.corruption`,
+            data = train)
+summary(model)
+resettest(model)
+
+model2 <- lm(`Life.Ladder` ~ `Log.GDP.per.capita` + `Social.support` +
+               `Healthy.life.expectancy.at.birth` +
+               `Perceptions.of.corruption` +`Freedom.to.make.life.choices` ,
+             data = train)
+summary(model2)
+plot(model2)
+
+vif(model2)
+
+num_data <- dane_finalne %>% 
+  select(-Country.name, -year, -Life.Ladder)
+
+correlations_gdp <- cor(num_data, use = "complete.obs")[, "Log.GDP.per.capita"]
+correlations_gdp <- correlations_gdp[names(correlations_gdp) != "Log.GDP.per.capita"]
+cor_data <- data.frame(Zmienna = names(correlations_gdp), Korelacja = round(correlations_gdp, 2))
+cor_data_sorted <- cor_data %>% arrange(desc(Korelacja))
+print(cor_data_sorted)
+
+model3 <- lm(`Life.Ladder` ~ `Social.support` +
+               `Healthy.life.expectancy.at.birth` +
+               `Perceptions.of.corruption` +`Freedom.to.make.life.choices` ,
+             data = train)
+summary(model3)
+plot(model3)
+vif(model3)
+
+res <- model3$residuals
+hist(res)
+skewness(res)
+kurtosis(res)
+shapiro.test(res)
+qqnorm(res); qqline(res)
+
+bptest(model3)
+gqtest(model3, point = 0.5,  data = train)
+
+plot(train$Log.GDP.per.capita, train$Life.Ladder,
+     xlab = "Log GDP per Capita", ylab = "Life Ladder",
+     main = "Zależność: PKB a Szczęście", col = "steelblue", pch = 16)
+abline(lm(Life.Ladder ~ Log.GDP.per.capita, data = train), col = "red", lwd = 2)
+
+res <- residuals(lm(Life.Ladder ~ Log.GDP.per.capita, data = train))
+plot(train$Log.GDP.per.capita, res,
+     xlab = "Log GDP per Capita", ylab = "Reszty",
+     main = "Reszty względem Log GDP", pch = 16, col = "grey")
+abline(h = 0, col = "red")
+
+runs.test(res)
+dwtest(model3)
+resettest(model3)
+sctest(model3)
+
+pred <- predict(model3, newdata = test, interval="p")
+mae <- mean(abs(pred - test$`Life.Ladder`))
+rmse <- sqrt(mean((pred - test$`Life.Ladder`)^2))
+mae
+rmse
+
+df <- data.frame(
+  Actual = test$Life.Ladder,
+  Prediction = pred[, "fit"],
+  Lower = pred[, "lwr"],
+  Upper = pred[, "upr"]
+)
+
+df %>%
+  mutate(hit = if_else(Actual >= Lower & Actual <= Upper, TRUE, FALSE)) %>%
+  summarise(hitrate = mean(hit))
+
+plot(test$Life.Ladder, pred[,"fit"], 
+     xlab = "Rzeczywiste wartości szczęścia", 
+     ylab = "Przewidywane wartości szczęścia", 
+     main = "Porównanie rzeczywistych vs przewidywanych wartości szczęścia",
+     col = "blue", pch = 16)
+abline(0, 1, col = "red", lwd = 2)
+
+ggplot(data.frame(resid = residuals(model3), fitted = fitted(model2)),
+       aes(x = fitted, y = resid)) +
+  geom_point() +
+  geom_hline(yintercept = 0, color = "red") +
+  labs(title = "Reszty vs dopasowane wartości", x = "Dopasowane", y = "Reszty")
+
+model_year <- lm(Life.Ladder ~ Log.GDP.per.capita + Social.support +
+                   Healthy.life.expectancy.at.birth + Perceptions.of.corruption +
+                   factor(year), data = train)
+summary(model_year)
+anova(model2, model_year)
+AIC(model2, model_year)
+vif(model_year)
+
+pred <- predict(model_year, newdata = test)
+mae <- mean(abs(pred - test$`Life.Ladder`))
+rmse <- sqrt(mean((pred - test$`Life.Ladder`)^2))
+mae
+rmse
+error <- test$Life.Ladder - pred
+MAE <- mean(abs(error))
+MAPE <- mean(abs(error / test$Life.Ladder))*100
+RMSE <- sqrt(mean(error^2))
+cat("MAE:", MAE, "\nMAPE:", MAPE, "\nRMSE:", RMSE, "\n")
+resettest(model_year)
+
+data_2 <- dane_finalne
+data_2$Region <- countrycode(sourcevar = dane_finalne$Country.name, origin = "country.name", destination = "region")
+data_2$RegionCode <- as.numeric(factor(data_2$Region))
+levels(factor(data_2$Region))
+
+ggplot(data_2, aes(x = factor(Region), y = Life.Ladder)) +
+  geom_boxplot(fill = "skyblue", alpha = 0.7, outlier.color = "red") +
+  stat_summary(fun = mean, geom = "point", shape = 20, size = 3, color = "darkblue", position = position_dodge(width = 0.75)) +
+  labs(title = "Rozkład szczęścia (Life Ladder) w regionach", x = "Region", y = "Life Ladder") +
+  theme_minimal(base_size = 14) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+data_2 %>%
+  group_by(year, Region) %>%
+  summarise(mean_life = mean(Life.Ladder, na.rm = TRUE)) %>%
+  ggplot(aes(x = year, y = mean_life, color = factor(Region))) +
+  geom_line(size = 1.2) +
+  geom_point(size = 2) +
+  labs(title = "Średni poziom szczęścia w regionach na przestrzeni lat", x = "Rok", y = "Średni Life Ladder", color = "Region") +
+  theme_minimal(base_size = 14)
+
+anova_region <- aov(Life.Ladder ~ factor(Region), data = data_2)
+summary(anova_region)
+
+data_2cleaned <- data_2 %>% select(-year, -Country.name, -Region)
+region_dummies <- model.matrix(~ factor(RegionCode) - 1, data = data_2cleaned)
+hellwig_data <- cbind(data_2cleaned, region_dummies)
+hellwig_data <- hellwig_data %>% select(-RegionCode)
+
+hellwig(hellwig_data, 13)
+cor(hellwig_data$Life.Ladder, region_dummies)
+
+train1 <- data_2 %>% slice_sample(prop = 0.9) 
+test1 <- anti_join(data_2, train)
+
+model3 <- lm(`Life.Ladder` ~  `Social.support` +
+               `Healthy.life.expectancy.at.birth` + `Perceptions.of.corruption` + factor(RegionCode),
+             data = train1)
+summary(model3)
+anova(model3, model2)
+AIC(model3, model2)
+vif(model3)
+
+pred1 <- predict(model3, newdata = test1, interval="prediction")
+df <- data.frame(
+  Actual = test1$Life.Ladder,
+  Prediction = pred1[, "fit"],
+  Lower = pred1[, "lwr"],
+  Upper = pred1[, "upr"]
+)
+
+df %>%
+  mutate(hit = if_else(Actual >= Lower & Actual <= Upper, TRUE, FALSE)) %>%
+  summarise(hitrate = mean(hit))
+
+dwtest(model3)
+resettest(model3)
+sctest(model3)
+
+
